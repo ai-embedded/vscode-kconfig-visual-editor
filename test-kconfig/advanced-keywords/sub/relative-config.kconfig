@@ -1,0 +1,21 @@
+# rsource test - relative path configuration file
+
+config RSOURCE_TEST_1
+    bool "rsource test 1"
+    default n
+    help
+      This option comes from the file referenced via rsource.
+
+config RSOURCE_TEST_2
+    hex "rsource hex parameter"
+    default 0x1000
+    help
+      Verify the rsource relative path reference.
+
+menu "rsource menu"
+
+config RSOURCE_MENU_ITEM
+    bool "rsource menu item"
+    default y
+
+endmenu

@@ -1,0 +1,24 @@
+<svg width="128" height="128" viewBox="0 0 128 128" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <radialGradient id="circleGradient" cx="50%" cy="50%" r="50%">
+      <stop offset="0%" stop-color="#f5f7ff"/>
+      <stop offset="60%" stop-color="#5b8def"/>
+      <stop offset="100%" stop-color="#274bdb"/>
+    </radialGradient>
+    <linearGradient id="kGradient" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#ffffff"/>
+      <stop offset="50%" stop-color="#d6e4ff"/>
+      <stop offset="100%" stop-color="#8ab6ff"/>
+    </linearGradient>
+    <filter id="shadow" x="-20%" y="-20%" width="140%" height="140%">
+      <feDropShadow dx="0" dy="4" stdDeviation="6" flood-color="#10266b" flood-opacity="0.28"/>
+    </filter>
+  </defs>
+
+  <circle cx="64" cy="64" r="54" fill="url(#circleGradient)" stroke="#10266b" stroke-width="6" filter="url(#shadow)"/>
+
+  <path d="M48 28V100" stroke="#ffffff" stroke-width="8" stroke-linecap="round"/>
+  <path d="M48 64L84 28" stroke="url(#kGradient)" stroke-width="10" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M48 64L86 100" stroke="url(#kGradient)" stroke-width="10" stroke-linecap="round" stroke-linejoin="round"/>
+
+</svg>

@@ -1,0 +1,376 @@
+# Conditional attribute testing
+# Test if condition, visible if, condition prompt, condition default, condition select
+
+mainmenu "Conditional attribute testing"
+
+# ==================== Basic configuration ====================
+config ARCH_ARM
+    bool "ARM architecture"
+    default n
+
+config ARCH_RISCV
+    bool "RISC-V architecture"
+    default n
+
+config ARCH_X86
+    bool "x86 architecture"
+    default n
+
+config DEBUG_MODE
+    bool "debug mode"
+    default n
+
+config RELEASE_MODE
+    bool "Release mode"
+    default n
+
+config OPTIMIZATION_LEVEL
+    int "Optimization level"
+    range 0 3
+    default 0
+
+# ==================== Test 1: Conditional prompt ====================
+menu "Test 1: Conditional Prompt"
+
+config FEATURE_WITH_COND_PROMPT_1
+    bool "ARM GIC support" if ARCH_ARM
+    default n
+    help
+      This prompt is only displayed under ARM architecture.
+      This is the pattern actually used in RT-Thread.
+
+config FEATURE_WITH_COND_PROMPT_2
+    bool "RISC-V PLIC support" if ARCH_RISCV
+    default n
+    help
+      This prompt is only displayed under RISC-V architecture.
+
+config FEATURE_WITH_COND_PROMPT_3
+    bool "Advanced features" if DEBUG_MODE && ARCH_ARM
+    default n
+    help
+      Only shown in debug mode and ARM architecture.
+
+config FEATURE_WITH_COND_PROMPT_4
+    bool "Experimental features" if (ARCH_ARM || ARCH_RISCV) && DEBUG_MODE
+    default n
+    help
+      Only shown in certain architectures and debug modes.
+
+endmenu
+
+# ==================== Test 2: Multiple conditions default ====================
+menu "Test 2: Multi-condition default (conditional default value)"
+
+config STACK_SIZE
+    int "stack size"
+    default 8192 if ARCH_X86
+    default 4096 if ARCH_ARM
+    default 2048 if ARCH_RISCV
+    default 1024
+    help
+      Set different default stack sizes based on different architectures.
+      Fallback default value is 1024.
+
+config THREAD_PRIORITY
+    int "Thread priority"
+    default 2 if DEBUG_MODE
+    default 4 if RELEASE_MODE
+    default 10
+    help
+      Set different thread priorities based on mode.
+
+config MEMORY_SIZE
+    hex "Memory size"
+    default 0x10000 if ARCH_X86
+    default 0x8000 if ARCH_ARM
+    default 0x4000
+    help
+      Set different memory sizes based on architecture.
+
+config ENABLE_FEATURE_X
+    bool "Enable feature X"
+    default y if ARCH_ARM
+    default y if DEBUG_MODE
+    default n
+    help
+      Enabled by default under certain conditions.
+
+endmenu
+
+# ==================== Test 3: Condition select ====================
+menu "Test 3: Conditional select"
+
+config BASE_FEATURE_1
+    bool "Basic functions 1"
+    default n
+
+config BASE_FEATURE_2
+    bool "Basic functions 2"
+    default n
+
+config BASE_FEATURE_3
+    bool "Basic functions 3"
+    default n
+
+config SENSOR_SUPPORT
+    bool "Sensor support"
+    select BASE_FEATURE_1 if ARCH_ARM
+    select BASE_FEATURE_2 if ARCH_RISCV
+    default n
+    help
+      Different basic functions are automatically selected according to the architecture.
+      This is real usage in RT-Thread.
+
+config ADVANCED_SENSOR
+    bool "Advanced sensors"
+    select BASE_FEATURE_1 if DEBUG_MODE && ARCH_ARM
+    select BASE_FEATURE_3 if RELEASE_MODE
+    default n
+    help
+      Conditional select can use complex logical expressions.
+
+endmenu
+
+# ==================== Test 4: visible if ====================
+menu "Test 4: visible if"
+
+config VISIBLE_CONTAINER
+    bool "visibility container"
+    default y
+
+menu "ARM specific options"
+    visible if ARCH_ARM
+
+config ARM_SPECIFIC_1
+    bool "ARM specific features 1"
+    default y
+
+config ARM_SPECIFIC_2
+    int "ARM specific parameters"
+    range 0 100
+    default 50
+
+endmenu
+
+menu "Debugging options"
+    visible if DEBUG_MODE
+
+config DEBUG_OPTION_1
+    bool "Debug option 1"
+    default y
+
+config DEBUG_OPTION_2
+    hex "debug level"
+    default 0xFF
+
+endmenu
+
+menu "Advanced options"
+    visible if DEBUG_MODE && (ARCH_ARM || ARCH_RISCV)
+
+config ADVANCED_OPTION
+    bool "Advanced options"
+    default n
+    help
+      Only visible in debug mode and on certain architectures.
+
+endmenu
+
+endmenu
+
+# ==================== Test 5: Complex conditions in if blocks ====================
+menu "Test 5: Complex conditions in if blocks"
+
+config ENABLE_NETWORK
+    bool "enable network"
+    default n
+
+config ENABLE_USB
+    bool "Enable USB"
+    default n
+
+# if block uses &&
+if ARCH_ARM && DEBUG_MODE
+
+config ARM_DEBUG_1
+    bool "ARM debugging features 1"
+    default y
+
+config ARM_DEBUG_2
+    int "ARM debugging parameters"
+    default 42
+
+endif
+
+# if block uses ||
+if ENABLE_NETWORK || ENABLE_USB
+
+config PERIPHERAL_SUPPORT
+    bool "Peripheral support"
+    default y
+    help
+      Peripheral support is required when network or USB is enabled.
+
+endif
+
+# if block uses !
+if !RELEASE_MODE
+
+config TESTING_FEATURES
+    bool "test function"
+    default y
+    help
+      Test functionality available in non-release mode.
+
+endif
+
+# if blocks use complex expressions
+if (ARCH_ARM || ARCH_RISCV) && DEBUG_MODE
+
+config CROSS_PLATFORM_DEBUG
+    bool "Cross-platform debugging"
+    default y
+
+endif
+
+endmenu
+
+# ==================== Test 6: Conditional expression of range ====================
+menu "Test 6: range conditional expression"
+
+config BUFFER_SIZE
+    int "buffer size"
+    range 1024 65536 if ARCH_X86
+    range 512 32768 if ARCH_ARM
+    range 256 16384 if ARCH_RISCV
+    default 1024
+    help
+      Different architectures have different buffer size limits.
+
+endmenu
+
+# ==================== Test 7: Combining multiple conditional attributes ====================
+menu "Test 7: Multiple conditional attribute combinations"
+
+config COMBO_FEATURE
+    bool "Combination properties" if DEBUG_MODE || RELEASE_MODE
+    default y if ARCH_ARM
+    default n
+    select BASE_FEATURE_1 if ARCH_ARM && DEBUG_MODE
+    select BASE_FEATURE_2 if ARCH_RISCV
+    help
+      This configuration item combines multiple conditional attributes:
+      - conditional prompt
+      -Multiple conditions default
+      - condition select
+
+endmenu
+
+# ==================== Test 8: Nested conditional blocks ====================
+menu "Test 8: Nested conditional blocks"
+
+if ARCH_ARM
+
+config ARM_BASE
+    bool "ARM basic functions"
+    default y
+
+if DEBUG_MODE
+
+config ARM_DEBUG_NESTED
+    bool "ARM nested debugging function"
+    default y
+    help
+      Requires ARCH_ARM && DEBUG_MODE.
+
+menu "ARM debug menu"
+
+config ARM_DEBUG_OPTION
+    int "ARM debugging options"
+    default 10
+
+endmenu
+
+endif # DEBUG_MODE
+
+endif # ARCH_ARM
+
+endmenu
+
+# ==================== Test 9: Negating combined conditional attributes ====================
+menu "Test 9: Negating combined conditional attributes"
+
+config FEATURE_SMP_MODE
+    bool "SMP mode"
+    default n
+
+config FEATURE_AMP_MODE
+    bool "AMP mode"
+    default n
+
+config FEATURE_GIC_V2
+    bool "Enable GIC V2"
+    default n
+
+config FEATURE_GIC_V3
+    bool "Enable GIC V3"
+    default n
+
+config FEATURE_ETHERNET
+    bool "Ethernet controller"
+    default n
+
+config FEATURE_PWM_OUTPUT
+    bool "PWM output"
+    default n
+
+config FEATURE_UART_CORE
+    bool "UART core driver"
+    default n
+
+config FEATURE_NORDIC_EXT
+    bool "Nordic extended support"
+    default n
+
+config SINGLE_CORE_LIMIT
+    int "Single core mode limitations"
+    range 1 1 if !FEATURE_SMP_MODE && !FEATURE_AMP_MODE
+    range 1 8
+    default 1
+    help
+      Mode from RT-Thread src/Kconfig: Force range convergence when both SMP and AMP are disabled.
+
+config FALLBACK_INTERRUPT_ROUTER
+    bool "Fallback interrupt control"
+    default y if !FEATURE_GIC_V2 && !FEATURE_GIC_V3
+    default n
+    help
+      Corresponds to the GIC default entry of RT-Thread libcpu/Kconfig, testing the negative combination default.
+
+config SAFE_MODE_SWITCH
+    bool "safe mode switch"
+    depends on (!FEATURE_ETHERNET && !FEATURE_PWM_OUTPUT)
+    default n
+    help
+      Refer to the writing methods of multiple BSP boards/Kconfig to verify the negative AND with parentheses.
+
+config SAFETY_BACKOFF
+    bool "Safe mode fallback"
+    depends on (!FEATURE_ETHERNET && !FEATURE_PWM_OUTPUT) || FEATURE_SMP_MODE
+    default y if !FEATURE_ETHERNET && !FEATURE_PWM_OUTPUT
+    default n
+    help
+      Combine !, &&, || to cover missing complex dependency scenarios.
+
+if FEATURE_UART_CORE&&FEATURE_NORDIC_EXT
+
+config UART_NORDIC_BRIDGE
+    bool "Nordic UART joint driver"
+    default y
+    help
+      Copied from the no-space && writing in nRF5x BSP to ensure correct lexical parsing.
+
+endif
+
+endmenu

@@ -1,0 +1,21 @@
+# Nested source test - Level 2
+# This file is included by level 1 file
+
+config NESTED_LEVEL2_CONFIG
+    bool "Nested level 2 config"
+    default n
+    depends on NESTED_LEVEL1_CONFIG
+    help
+      Second level nested configuration, depends on level 1 config.
+
+choice NESTED_CHOICE
+    prompt "Nested choice"
+    depends on NESTED_LEVEL2_CONFIG
+
+    config NESTED_CHOICE_A
+        bool "Nested choice A"
+
+    config NESTED_CHOICE_B
+        bool "Nested choice B"
+
+endchoice

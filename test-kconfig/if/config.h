@@ -1,0 +1,22 @@
+/*
+ * Automatically generated file; DO NOT EDIT.
+ */
+
+#define CONFIG_TOP_LEVEL_CONFIG 1
+#define CONFIG_BASIC_BOOL 1
+#define CONFIG_BASIC_INT 10
+#define CONFIG_BASIC_STRING "test_string"
+#define CONFIG_NESTED_ITEM2 0x100
+#define CONFIG_NESTED_PARENT_ITEM "parent"
+#define CONFIG_LEVEL3_INT 42
+#define CONFIG_LEVEL2_AFTER_MENU "after_menu"
+#define CONFIG_CONDITIONAL_ITEM 1
+#define CONFIG_GZIP 1
+#define CONFIG_MENU_CHOICE_ENABLE 1
+#define CONFIG_OPTION_A 1
+#define CONFIG_AFTER_CHOICE "after_choice"
+#define CONFIG_SINGLE_ITEM 1
+#define CONFIG_COMPLEX_ITEM2 20
+#define CONFIG_MENUCONFIG_ITEM2 "menuconfig_value"
+#define CONFIG_NESTED_IN_MENUCONFIG 0x200
+#define CONFIG_FINAL_CONFIG 1

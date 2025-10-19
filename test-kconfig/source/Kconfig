@@ -1,0 +1,89 @@
+# Main Kconfig file - source series keyword test
+# Tests VSCode Kconfig extension support for source, rsource, osource, orsource
+
+mainmenu "Source Series Keyword Test"
+
+menu "Source Functionality Test"
+
+    config TEST_SOURCE_BASIC
+        bool "Basic source test"
+        help
+          Tests basic source functionality for including other Kconfig files.
+
+# Test source: absolute path or relative to project root
+source "sub/basic.kconfig"
+
+    config TEST_RSOURCE_BASIC
+        bool "Basic rsource test"
+        help
+          Tests rsource functionality, path resolution relative to current file directory.
+
+# Test rsource: relative to current file directory
+rsource "sub/relative.kconfig"
+
+    config TEST_OSOURCE_BASIC
+        bool "Basic osource test"
+        help
+          Tests osource functionality, optional source (no error when file doesn't exist).
+
+# Test osource: optional source, no error when file doesn't exist
+osource "sub/optional-missing.kconfig"
+osource "sub/optional-exists.kconfig"
+
+    config TEST_ORSOURCE_BASIC
+        bool "Basic orsource test"
+        help
+          Tests orsource functionality, optional relative path source.
+
+# Test orsource: optional relative path source
+orsource "sub/optional-relative-missing.kconfig"
+orsource "sub/optional-relative-exists.kconfig"
+
+endmenu
+
+menu "Glob Pattern Test"
+
+    config TEST_GLOB_PATTERNS
+        bool "Glob pattern test"
+        help
+          Tests source series keywords support for glob wildcard patterns.
+
+# Test glob pattern matching
+source "patterns/*.kconfig"
+
+# Optional glob pattern
+osource "patterns/opt_*.kconfig"
+
+# Relative path glob pattern
+rsource "patterns/rel_*.kconfig"
+
+endmenu
+
+menu "Nested Source Test"
+
+    config TEST_NESTED_SOURCE
+        bool "Nested source test"
+        help
+          Tests nested source file inclusion.
+
+# Nested test
+source "nested/level1.kconfig"
+
+endmenu
+
+# Test using source in if block
+if TEST_SOURCE_BASIC
+
+menu "Conditional Source Test"
+
+    config TEST_CONDITIONAL_SOURCE
+        bool "Conditional source test"
+        help
+          Tests using source series keywords in conditional blocks.
+
+# source in if block
+rsource "sub/conditional.kconfig"
+
+endmenu
+
+endif

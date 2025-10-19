@@ -1,0 +1,148 @@
+menu "Main Settings"
+    config SOC_TYPE_CV180X
+    bool
+    default n
+
+    config SOC_TYPE_SG2000
+        bool
+        default n
+
+    config SOC_TYPE_SG2002
+        bool
+        default n
+
+    config OPTION_A
+        bool "Option A"
+        default y
+        help
+            This is option A description.
+            It demonstrates a boolean configuration option.
+
+    config OPTION_B
+        int "Integer Option B"
+        range 1 100
+        default 10
+        help
+            This is an integer configuration option.
+            Valid range is from 1 to 100, default is 10.
+
+    config OPTION_C
+        string "String Option C"
+        default "default_value"
+        help
+            This is a string configuration option.
+            You can enter any text value here.
+
+    config OPTION_D
+        hex "Hexadecimal Option D"
+        default 0x1000
+        help
+            This is a hexadecimal configuration option.
+            Enter values in hexadecimal format (0x prefix).
+
+    config OPTION_E
+        bool "Option E"
+        depends on OPTION_A
+        help
+            This is option E that depends on Option A.
+            It will only be available when Option A is enabled.
+
+    choice
+        prompt "Select Mode"
+        default MODE_AUTO
+        help
+            Choose the operating mode for the system.
+
+        config MODE_AUTO
+            bool "Automatic Mode"
+            help
+                Automatically detect and configure settings.
+
+        config MODE_MANUAL
+            bool "Manual Mode"
+            help
+                Manually configure all settings.
+
+        config MODE_DEBUG
+            bool "Debug Mode"
+            help
+                Enable debug mode with additional logging.
+    endchoice
+
+    config ADVANCED_FEATURES
+        bool "Enable Advanced Features"
+        default n
+        help
+            Enable advanced features and configurations.
+            This will show additional menu options.
+
+endmenu
+
+menu "Advanced Settings"
+    depends on ADVANCED_FEATURES
+
+    config ADV_OPTION_1
+        bool "Advanced Option 1"
+        default n
+        help
+            This is an advanced configuration option.
+            Only visible when Advanced Features is enabled.
+
+    config ADV_OPTION_2
+        int "Advanced Buffer Size"
+        range 512 8192
+        default 1024
+        depends on ADV_OPTION_1
+        help
+            Configure the buffer size for advanced operations.
+            Only available when Advanced Option 1 is enabled.
+
+    config LOG_LEVEL
+        int "Log Level"
+        range 0 4
+        default 2
+        help
+            Set the logging level:
+            0 - Silent
+            1 - Error
+            2 - Warning (default)
+            3 - Info
+            4 - Debug
+
+endmenu
+
+menu "Network Settings"
+
+    config ENABLE_NETWORK
+        bool "Enable Network Support"
+        default y
+        help
+            Enable network functionality in the system.
+
+    config NETWORK_PROTOCOL
+        string "Network Protocol"
+        default "TCP"
+        depends on ENABLE_NETWORK
+        help
+            Specify the network protocol to use.
+            Common values: TCP, UDP, HTTP, HTTPS
+
+    config NETWORK_PORT
+        int "Network Port"
+        range 1024 65535
+        default 8080
+        depends on ENABLE_NETWORK
+        help
+            Configure the network port number.
+            Valid range: 1024-65535
+
+    config NETWORK_TIMEOUT
+        int "Network Timeout (seconds)"
+        range 5 300
+        default 30
+        depends on ENABLE_NETWORK
+        help
+            Set network timeout in seconds.
+            Recommended range: 5-300 seconds
+
+endmenu

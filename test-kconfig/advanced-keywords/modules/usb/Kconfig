@@ -1,0 +1,20 @@
+# modules/usb/Kconfig
+# USB module configuration automatically loaded via rsource "modules/*/Kconfig"
+
+menu "USB module"
+
+config USB_OTG_SUPPORT
+    tristate "USB OTG support"
+    depends on MODULES
+    default m
+    help
+      Test modular builds of OTG functionality via the modules keyword.
+
+config USB_STORAGE_DRIVER
+    bool "USB storage driver"
+    depends on USB_OTG_SUPPORT
+    default y
+    help
+      USB storage driver provided when OTG module is available.
+
+endmenu

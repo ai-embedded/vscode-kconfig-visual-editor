@@ -1,0 +1,392 @@
+# Complex nested condition test
+# Comprehensive coverage of complex syntax combinations
+
+mainmenu "Complex nested condition test"
+
+# ==================== Basic configuration ====================
+config ARCH_ARM
+    bool "ARM architecture"
+    default n
+
+config ARCH_RISCV
+    bool "RISC-V architecture"
+    default n
+
+config ARCH_X86
+    bool "x86 architecture"
+    default n
+
+config CPU_64BIT
+    bool "64-bit CPU"
+    default n
+
+config DEBUG_MODE
+    bool "Debug mode"
+    default n
+
+config RELEASE_MODE
+    bool "Release mode"
+    default n
+
+config OPTIMIZATION_LEVEL
+    int "Optimization level"
+    range 0 3
+    default 0
+
+config ENABLE_DMA
+    bool "Enable DMA"
+    default n
+
+config ENABLE_CACHE
+    bool "Enable caching"
+    default n
+
+config MEMORY_SIZE
+    hex "Memory size"
+    default 0x100000
+
+# ==================== Test 1: Complex depends-on expressions ====================
+menu "Test 1: Complex depends-on expressions"
+
+config COMPLEX_DEP_1
+    bool "64-bit systems with ARM or RISC-V"
+    depends on (ARCH_ARM || ARCH_RISCV) && CPU_64BIT
+    default n
+    help
+      Requires 64-bit ARM or RISC-V architecture.
+
+config COMPLEX_DEP_2
+    bool "Debug or release, but not x86"
+    depends on (DEBUG_MODE || RELEASE_MODE) && !ARCH_X86
+    default n
+    help
+      Debug or release mode for non-x86 architectures.
+
+config COMPLEX_DEP_3
+    bool "Highly optimized 64-bit system or low-optimization ARM"
+    depends on (OPTIMIZATION_LEVEL >= 2 && CPU_64BIT) || (OPTIMIZATION_LEVEL < 2 && ARCH_ARM)
+    default n
+    help
+      Complex mixed conditions.
+
+config COMPLEX_DEP_4
+    bool "DMA and cache are both enabled, or in debug mode"
+    depends on (ENABLE_DMA && ENABLE_CACHE) || DEBUG_MODE
+    default n
+
+config COMPLEX_DEP_5
+    bool "Non-ARM with (debug or optimization > 0)"
+    depends on !ARCH_ARM && (DEBUG_MODE || OPTIMIZATION_LEVEL > 0)
+    default n
+
+config COMPLEX_DEP_6
+    bool "!(ARM && 64-bit) and memory >= 1MB"
+    depends on !(ARCH_ARM && CPU_64BIT) && MEMORY_SIZE >= 0x100000
+    default n
+    help
+      Test negative compound expressions combined with comparison operators.
+
+endmenu
+
+# ==================== Test 2: Complex nested if blocks ====================
+menu "Test 2: Complex nested if blocks"
+
+if (ARCH_ARM || ARCH_RISCV) && !ARCH_X86
+
+config RISC_ARCH_FEATURE
+    bool "RISC architecture features"
+    default y
+
+if DEBUG_MODE && OPTIMIZATION_LEVEL < 2
+
+config LOW_OPT_DEBUG
+    bool "Low optimization debugging features"
+    default y
+
+if ENABLE_DMA || ENABLE_CACHE
+
+config CACHED_DMA_DEBUG
+    bool "Cache/DMA Debugging"
+    default y
+    help
+      Three levels of nesting if: RISC architecture && low optimization debugging && (DMA|| cache).
+
+endif # DMA or Cache
+
+endif # Debug && Low opt
+
+endif # RISC arch
+
+endmenu
+
+# ==================== Test 3: Combining multiple conditional attributes ====================
+menu "Test 3: Combining multiple conditional attributes"
+
+config BASE_LIB_A
+    bool "Basic library A"
+    default n
+
+config BASE_LIB_B
+    bool "Basic library B"
+    default n
+
+config BASE_LIB_C
+    bool "Basic library C"
+    default n
+
+config ADVANCED_FEATURE
+    bool "Advanced features" if (ARCH_ARM && CPU_64BIT) || (ARCH_RISCV && DEBUG_MODE)
+    depends on OPTIMIZATION_LEVEL >= 1
+    default y if ARCH_ARM && CPU_64BIT && OPTIMIZATION_LEVEL >= 2
+    default n
+    select BASE_LIB_A if ARCH_ARM
+    select BASE_LIB_B if ARCH_RISCV && DEBUG_MODE
+    select BASE_LIB_C if OPTIMIZATION_LEVEL >= 2
+    help
+      Combined:
+      - conditional prompt
+      - depends on
+      - condition default
+      - Multiple conditions select
+
+config MEMORY_POOL_SIZE
+    int "memory pool size"
+    range 1024 65536 if ARCH_X86 && CPU_64BIT
+    range 512 32768 if (ARCH_ARM || ARCH_RISCV) && CPU_64BIT
+    range 256 16384 if !(CPU_64BIT)
+    default 8192 if ARCH_X86
+    default 4096 if CPU_64BIT
+    default 2048
+    help
+      Set different ranges and defaults based on architecture and CPU bits.
+
+endmenu
+
+# ==================== Test 4: Complex combination of menu and if blocks ====================
+menu "Test 4: Complex combination of menu and if blocks"
+
+menu "ARM 64-bit features"
+    depends on ARCH_ARM && CPU_64BIT
+
+if DEBUG_MODE || OPTIMIZATION_LEVEL = 0
+
+config ARM64_DEBUG_FEATURE
+    bool "ARM64 debugging features"
+    default y
+
+menu "ARM64 debugging submenu"
+    visible if ENABLE_DMA
+
+config ARM64_DMA_DEBUG
+    bool "ARM64 DMA debugging"
+    default y
+
+endmenu
+
+endif # Debug or no opt
+
+endmenu # ARM64
+
+if (ARCH_RISCV && !CPU_64BIT) || (ARCH_ARM && !DEBUG_MODE)
+
+menu "32-bit RISC or non-debug ARM"
+
+config RV32_OR_ARM_RELEASE
+    bool "Specific configuration features"
+    default y
+
+endmenu
+
+endif
+
+endmenu
+
+# ==================== Test 5: choice and complex conditions ====================
+menu "Test 5: choice and complex conditions"
+
+choice MEMORY_ALLOCATOR
+    prompt "memory allocator" if (ARCH_ARM || ARCH_RISCV) && MEMORY_SIZE >= 0x10000
+    depends on !ARCH_X86 || CPU_64BIT
+    default ALLOCATOR_STANDARD if OPTIMIZATION_LEVEL < 2
+    default ALLOCATOR_POOLED
+
+config ALLOCATOR_STANDARD
+    bool "standard dispenser"
+    help
+      Standard malloc/free implementation.
+
+config ALLOCATOR_POOLED
+    bool "Pooled allocator"
+    help
+      Allocator using memory pool.
+
+config ALLOCATOR_SLAB
+    bool "slab distributor" if DEBUG_MODE && MEMORY_SIZE >= 0x100000
+    help
+      Available only in large memory debug mode.
+
+endchoice
+
+if ALLOCATOR_POOLED && (ARCH_ARM || ARCH_RISCV)
+
+config POOL_COUNT
+    int "Number of memory pools"
+    range 2 16 if MEMORY_SIZE >= 0x100000
+    range 1 8
+    default 4 if CPU_64BIT
+    default 2
+
+endif
+
+endmenu
+
+# ==================== Test 6: Extremely complex logical expressions ====================
+menu "Test 6: Extremely complex logical expressions"
+
+config EXTREME_COMPLEX_1
+    bool "Extremely complex conditions 1"
+    depends on ((ARCH_ARM && CPU_64BIT) || (ARCH_RISCV && !CPU_64BIT)) && \
+               (OPTIMIZATION_LEVEL >= 2 || DEBUG_MODE) && \
+               !(ARCH_X86 && RELEASE_MODE)
+    default n
+    help
+      Three combination conditions:
+      1. (ARM64 or RV32)
+      2. (High optimization or debugging)
+      3. Not (x86 release)
+
+config EXTREME_COMPLEX_2
+    bool "Extremely complex conditions 2"
+    depends on (ENABLE_DMA && ENABLE_CACHE && MEMORY_SIZE > 0x10000) || \
+               (!ENABLE_DMA && !ENABLE_CACHE && DEBUG_MODE) || \
+               (ARCH_ARM && CPU_64BIT && OPTIMIZATION_LEVEL = 3)
+    default n
+    help
+      Three-way OR condition:
+      1. DMA+cache+large memory
+      2. Debugging without DMA and caching
+      3. ARM64 highest optimization
+
+config EXTREME_COMPLEX_3
+    bool "Extremely complex conditions 3" if !(ARCH_X86 || (ARCH_ARM && !CPU_64BIT))
+    depends on ((OPTIMIZATION_LEVEL >= 1 && OPTIMIZATION_LEVEL <= 2) || DEBUG_MODE) && \
+               (MEMORY_SIZE >= 0x10000)
+    default y if (ARCH_ARM && CPU_64BIT && OPTIMIZATION_LEVEL >= 2)
+    default n
+    select BASE_LIB_A if ARCH_ARM && OPTIMIZATION_LEVEL >= 2
+    select BASE_LIB_B if ARCH_RISCV && DEBUG_MODE && MEMORY_SIZE >= 0x100000
+    help
+      Combines multiple complex condition attributes.
+
+endmenu
+
+# ==================== Test 7: Combined effect of multiple depends-on clauses ====================
+menu "Test 7: Multiple depends-on clauses"
+
+config MULTI_DEPENDS_TEST
+    bool "Multiple dependency test"
+    depends on ARCH_ARM || ARCH_RISCV
+    depends on !ARCH_X86
+    depends on CPU_64BIT
+    depends on OPTIMIZATION_LEVEL >= 1
+    depends on MEMORY_SIZE >= 0x10000
+    depends on DEBUG_MODE || RELEASE_MODE
+    default n
+    help
+      All depends on must be satisfied simultaneously (AND relationship).
+      Equivalent to a giant AND expression.
+
+endmenu
+
+# ==================== Test 8: Nested choices and conditions ====================
+menu "Test 8: Nested choices and conditions"
+
+choice PLATFORM_TYPE
+    prompt "Platform type"
+    default PLATFORM_EMBEDDED
+
+config PLATFORM_EMBEDDED
+    bool "Embedded platform"
+
+config PLATFORM_DESKTOP
+    bool "desktop platform"
+
+config PLATFORM_SERVER
+    bool "Server platform"
+
+endchoice
+
+if PLATFORM_EMBEDDED
+
+choice EMBEDDED_ARCH
+    prompt "embedded architecture" if !ARCH_X86
+    depends on ARCH_ARM || ARCH_RISCV
+    default EMB_ARCH_ARM
+
+config EMB_ARCH_ARM
+    bool "ARM" if ARCH_ARM
+
+config EMB_ARCH_RISCV
+    bool "RISC-V" if ARCH_RISCV
+
+endchoice
+
+if EMB_ARCH_ARM && CPU_64BIT
+
+config ARM64_EMBEDDED_FEATURE
+    bool "ARM64 Embedded Features"
+    default y
+    select BASE_LIB_A
+    select BASE_LIB_B if ENABLE_DMA
+
+endif
+
+endif # PLATFORM_EMBEDDED
+
+endmenu
+
+# ==================== Test 9: Real Scenario Simulation ====================
+menu "Test 9: Real scenario simulation"
+
+menuconfig ENABLE_NETWORKING
+    bool "Enable network features"
+    default n
+    help
+      Enable network protocol stack.
+
+if ENABLE_NETWORKING
+
+config NETWORK_BUFFER_SIZE
+    int "Network buffer size"
+    range 1024 65536 if MEMORY_SIZE >= 0x100000
+    range 512 8192
+    default 8192 if MEMORY_SIZE >= 0x100000 && CPU_64BIT
+    default 4096 if CPU_64BIT
+    default 2048
+
+choice NETWORK_STACK
+    prompt "Network protocol stack" if (ARCH_ARM || ARCH_RISCV) && MEMORY_SIZE >= 0x10000
+    default LWIP
+
+config LWIP
+    bool "lwIP" if MEMORY_SIZE >= 0x10000
+    select BASE_LIB_A
+
+config CUSTOM_STACK
+    bool "Custom protocol stack" if DEBUG_MODE && MEMORY_SIZE >= 0x100000
+
+endchoice
+
+if LWIP
+
+config LWIP_DEBUG
+    bool "lwIP debugging" if DEBUG_MODE
+    depends on OPTIMIZATION_LEVEL <= 1
+    default y if DEBUG_MODE && OPTIMIZATION_LEVEL = 0
+    default n
+
+endif # LWIP
+
+endif # ENABLE_NETWORKING
+
+endmenu

@@ -1,0 +1,289 @@
+# Logical operator complex combination testing
+# Test &&, ||, ! and their complex combinations
+
+mainmenu "Logical operator complex combination testing"
+
+# ==================== Basic configuration options ====================
+config FEATURE_A
+    bool "Function A"
+    default n
+    help
+      Basic function A, used to test logical combinations.
+
+config FEATURE_B
+    bool "Function B"
+    default n
+    help
+      Basic function B, used to test logical combinations.
+
+config FEATURE_C
+    bool "Function C"
+    default n
+    help
+      Basic function C for testing logical combinations.
+
+config FEATURE_D
+    bool "Function D"
+    default n
+    help
+      Basic function D, used to test logical combinations.
+
+# ==================== Test 1: Negation Operator ! ====================
+menu "Test 1: Negation operator !"
+
+config TEST_NOT_A
+    bool "Depends on !FEATURE_A"
+    depends on !FEATURE_A
+    default y
+    help
+      Only visible if FEATURE_A is not enabled.
+
+config TEST_NOT_B
+    bool "Depends on !FEATURE_B"
+    depends on !FEATURE_B
+    default y
+    help
+      Only visible if FEATURE_B is not enabled.
+
+endmenu
+
+# ==================== Test 2: Multiple Conditions AND ====================
+menu "Test 2: Multiple Conditional AND Combinations"
+
+config TEST_AND_TWO
+    bool "Depends on A && B"
+    depends on FEATURE_A && FEATURE_B
+    default y
+    help
+      Requires both FEATURE_A and FEATURE_B to be enabled.
+
+config TEST_AND_THREE
+    bool "Depends on A && B && C"
+    depends on FEATURE_A && FEATURE_B && FEATURE_C
+    default y
+    help
+      Requires FEATURE_A, FEATURE_B and FEATURE_C to be enabled at the same time.
+
+config TEST_AND_FOUR
+    bool "Depends on A && B && C && D"
+    depends on FEATURE_A && FEATURE_B && FEATURE_C && FEATURE_D
+    default y
+    help
+      Requires all four features to be enabled simultaneously.
+
+endmenu
+
+# ==================== Test 3: Multiple conditions OR ====================
+menu "Test 3: Multi-condition OR combination"
+
+config TEST_OR_TWO
+    bool "depends on A || B"
+    depends on FEATURE_A || FEATURE_B
+    default y
+    help
+      Enable either FEATURE_A or FEATURE_B.
+
+config TEST_OR_THREE
+    bool "Depends on A || B || C"
+    depends on FEATURE_A || FEATURE_B || FEATURE_C
+    default y
+    help
+      Enable any one of FEATURE_A, FEATURE_B or FEATURE_C.
+
+config TEST_OR_FOUR
+    bool "Depends on A || B || C || D"
+    depends on FEATURE_A || FEATURE_B || FEATURE_C || FEATURE_D
+    default y
+    help
+      Just enable any function.
+
+endmenu
+
+# ==================== Test 4: Mixing AND and OR ====================
+menu "Test 4: Mixed AND and OR operations"
+
+config TEST_MIXED_1
+    bool "Depends on A && B || C"
+    depends on FEATURE_A && FEATURE_B || FEATURE_C
+    default y
+    help
+      (A && B) or C.
+      Test operator precedence: && takes precedence over ||.
+
+config TEST_MIXED_2
+    bool "Depends on A || B && C"
+    depends on FEATURE_A || FEATURE_B && FEATURE_C
+    default y
+    help
+      A or (B && C).
+      Test operator precedence: && takes precedence over ||.
+
+config TEST_MIXED_3
+    bool "Depends on A && B || C && D"
+    depends on FEATURE_A && FEATURE_B || FEATURE_C && FEATURE_D
+    default y
+    help
+      (A && B) or (C && D).
+
+endmenu
+
+# ==================== Test 5: Expressions with parentheses ====================
+menu "Test 5: Parenthesized priority control"
+
+config TEST_PARENS_1
+    bool "depends on (A || B)"
+    depends on (FEATURE_A || FEATURE_B)
+    default y
+    help
+      A or B (explicit expression in parentheses).
+
+config TEST_PARENS_2
+    bool "Depends on (A || B) && C"
+    depends on (FEATURE_A || FEATURE_B) && FEATURE_C
+    default y
+    help
+      (A or B) and C.
+
+config TEST_PARENS_3
+    bool "depends on A && (B || C)"
+    depends on FEATURE_A && (FEATURE_B || FEATURE_C)
+    default y
+    help
+      A and (B or C).
+
+config TEST_PARENS_4
+    bool "Depends on (A || B) && (C || D)"
+    depends on (FEATURE_A || FEATURE_B) && (FEATURE_C || FEATURE_D)
+    default y
+    help
+      (A or B) and (C or D).
+
+endmenu
+
+# ==================== Test 6: Negation operator combinations ====================
+menu "Test 6: Negative operator combinations"
+
+config TEST_NOT_AND_1
+    bool "Depends on !A && B"
+    depends on !FEATURE_A && FEATURE_B
+    default y
+    help
+      Not A and B.
+
+config TEST_NOT_AND_2
+    bool "Depends on A && !B"
+    depends on FEATURE_A && !FEATURE_B
+    default y
+    help
+      A and not B.
+
+config TEST_NOT_AND_3
+    bool "Depends on !A && !B"
+    depends on !FEATURE_A && !FEATURE_B
+    default y
+    help
+      Not A and not B.
+
+config TEST_NOT_OR_1
+    bool "Depends on !A || B"
+    depends on !FEATURE_A || FEATURE_B
+    default y
+    help
+      Not A or B.
+
+config TEST_NOT_OR_2
+    bool "Depends on A || !B"
+    depends on FEATURE_A || !FEATURE_B
+    default y
+    help
+      A or not B.
+
+config TEST_NOT_OR_3
+    bool "Depends on !A || !B"
+    depends on !FEATURE_A || !FEATURE_B
+    default y
+    help
+      Not A or not B (De Morgan's Law: equivalent to !(A && B)).
+
+endmenu
+
+# ==================== Test 7: Negate the entire expression ====================
+menu "Test 7: Negating compound expressions"
+
+config TEST_NOT_PARENS_1
+    bool "Depends on !(A && B)"
+    depends on !(FEATURE_A && FEATURE_B)
+    default y
+    help
+      Not (A and B), equivalent to !A || !B.
+
+config TEST_NOT_PARENS_2
+    bool "Depends on !(A || B)"
+    depends on !(FEATURE_A || FEATURE_B)
+    default y
+    help
+      Not (A or B), equivalent to !A && !B.
+
+config TEST_NOT_PARENS_3
+    bool "Depends on !(A && B || C)"
+    depends on !(FEATURE_A && FEATURE_B || FEATURE_C)
+    default y
+    help
+      Not ((A && B) || C).
+
+config TEST_NOT_PARENS_4
+    bool "Depends on !((A || B) && C)"
+    depends on !((FEATURE_A || FEATURE_B) && FEATURE_C)
+    default y
+    help
+      Not ((A || B) && C).
+
+endmenu
+
+# ==================== Test 8: Extremely complex combinations ====================
+menu "Test 8: Extremely complex logical expressions"
+
+config TEST_COMPLEX_1
+    bool "Depends on A && B && C || D"
+    depends on FEATURE_A && FEATURE_B && FEATURE_C || FEATURE_D
+    default y
+    help
+      (A && B && C) or D.
+
+config TEST_COMPLEX_2
+    bool "Depends on A || B && C || D"
+    depends on FEATURE_A || FEATURE_B && FEATURE_C || FEATURE_D
+    default y
+    help
+      A or (B && C) or D.
+
+config TEST_COMPLEX_3
+    bool "Depends on (A || B) && (C || D) && !FEATURE_A"
+    depends on (FEATURE_A || FEATURE_B) && (FEATURE_C || FEATURE_D) && !FEATURE_A
+    default y
+    help
+      It actually simplifies to B && (C || D).
+
+config TEST_COMPLEX_4
+    bool "Depends on !(A && B) || (C && !D)"
+    depends on !(FEATURE_A && FEATURE_B) || (FEATURE_C && !FEATURE_D)
+    default y
+    help
+      (!A || !B) or (C && !D).
+
+endmenu
+
+# ==================== Test 9: Multiple depends on ====================
+menu "Test 9: Multiple depends on statements"
+
+config TEST_MULTI_DEPENDS
+    bool "Multiple depends on statements"
+    depends on FEATURE_A
+    depends on FEATURE_B
+    depends on FEATURE_C || FEATURE_D
+    default y
+    help
+      Multiple depends on statements are equivalent to their AND combinations.
+      i.e., FEATURE_A && FEATURE_B && (FEATURE_C || FEATURE_D).
+
+endmenu

@@ -1,0 +1,8 @@
+# Optional Glob pattern test file
+# This file will be matched by opt_*.kconfig pattern (osource)
+
+config OPTIONAL_GLOB_CONFIG
+    bool "Optional Glob config"
+    default y
+    help
+      Config matched by optional glob pattern opt_*.kconfig.

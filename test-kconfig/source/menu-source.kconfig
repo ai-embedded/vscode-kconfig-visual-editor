@@ -1,0 +1,6 @@
+# menu-source.kconfig - file sourced inside menu
+
+config MENU_SOURCE_CONFIG
+    bool "Config from menu source"
+    help
+      This config is sourced inside a menu

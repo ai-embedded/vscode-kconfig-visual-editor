@@ -1,0 +1,20 @@
+# modules/net/Kconfig
+# Network module configuration automatically loaded through rsource "modules/*/Kconfig"
+
+menu "network module"
+
+config NETSTACK_CORE
+    tristate "Basic network stack"
+    depends on MODULES
+    default m
+    help
+      Provides a modular implementation of the basic network stack.
+
+config NETSTACK_IPV6
+    bool "IPv6 support"
+    depends on NETSTACK_CORE
+    default y
+    help
+      Extension for network module: Enable IPv6 protocol support.
+
+endmenu

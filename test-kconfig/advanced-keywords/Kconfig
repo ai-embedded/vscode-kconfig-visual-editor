@@ -1,0 +1,311 @@
+# Advanced keyword testing
+# Test advanced features such as imply, sources, modules etc.
+
+mainmenu "Advanced keyword testing"
+
+# ==================== Basic configuration ====================
+config BASE_SYSTEM
+    bool "Basic system"
+    default y
+    help
+      Basic system functions.
+
+config FEATURE_A
+    bool "Function A"
+    default n
+
+config FEATURE_B
+    bool "Function B"
+    default n
+
+config FEATURE_C
+    bool "Function C"
+    default n
+
+config OPTIMIZATION_LEVEL
+    int "Optimization level"
+    range 0 3
+    default 0
+
+# ==================== Test 1: imply basic usage ====================
+menu "Test 1: imply basic usage"
+
+config ENABLE_DRIVER_FRAMEWORK
+    bool "Enable driver framework"
+    imply FEATURE_A
+    imply FEATURE_B
+    default n
+    help
+      imply is a weak dependency, it is recommended to enable but not mandatory.
+      Users can still manually disable implied options.
+      Unlike select, select is a mandatory dependency.
+
+config ENABLE_USB_HOST
+    bool "Enable USB host"
+    imply FEATURE_A
+    default n
+    help
+      Enable USB host function, it is recommended to enable FEATURE_A at the same time.
+
+endmenu
+
+# ==================== Test 2: Comparison between imply and select ====================
+menu "Test 2: imply vs. select"
+
+config STRONG_DEPENDENCY
+    bool "Strong dependency example"
+    select FEATURE_A
+    default n
+    help
+      Use select: FEATURE_A is forced to be enabled and cannot be disabled by the user.
+
+config WEAK_DEPENDENCY
+    bool "Weak dependency example"
+    imply FEATURE_B
+    default n
+    help
+      Use imply: It is recommended to enable FEATURE_B, but the user can disable it.
+
+endmenu
+
+# ==================== Test 3: Condition implies ====================
+menu "Test 3: Condition implies"
+
+config ARCH_ARM
+    bool "ARM architecture"
+    default n
+
+config ARCH_RISCV
+    bool "RISC-V architecture"
+    default n
+
+config DEBUG_MODE
+    bool "debug mode"
+    default n
+
+config PLATFORM_DRIVER
+    bool "Platform driven"
+    imply FEATURE_A if ARCH_ARM
+    imply FEATURE_B if ARCH_RISCV
+    imply FEATURE_C if DEBUG_MODE && (ARCH_ARM || ARCH_RISCV)
+    default n
+    help
+      Depending on the architecture and mode, it is recommended to enable different features.
+
+endmenu
+
+# ==================== Test 4: osource (optional source) ====================
+menu "Test 4: osource (optional source)"
+
+# The difference between osource and source:
+# - source: The file must exist, otherwise an error will be reported
+# - osource: The file is optional. If it does not exist, no error will be reported.
+
+# Reference an existing file
+osource "advanced-keywords-sub.kconfig"
+
+# Reference a file that may not exist (no error will be reported)
+osource "optional-config.kconfig"
+
+# Reference conditional path
+osource "$(ARCH_DIR)/arch-specific.kconfig"
+
+endmenu
+
+# ==================== Test 5: rsource and orsource ====================
+menu "Test 5: rsource and orsource"
+
+# rsource: relative path source (relative to the current file)
+rsource "sub/relative-config.kconfig"
+
+# source: optional relative path source
+orsource "sub/optional-relative.kconfig"
+
+# rsource using wildcards
+rsource "modules/*/Kconfig"
+
+endmenu
+
+# ==================== Test 6: modules keyword ====================
+menu "Test 6: modules keyword"
+
+config MODULES
+    bool "Enable module support"
+    default n
+    help
+      Enable loadable kernel module support.
+
+config DYNAMIC_MODULE
+    tristate "dynamic module"
+    depends on MODULES
+    default m
+    help
+      The tristate type supports three states:
+      n - do not compile
+      m - compile to module
+      y - compiled into the kernel
+
+config MODULE_UNLOAD
+    bool "Module uninstall support"
+    depends on MODULES
+    default y
+    help
+      Allows unloading of loaded modules.
+
+endmenu
+
+# ==================== Test 7: option keyword ====================
+menu "Test 7: option keyword"
+
+config DEFCONFIG_LIST
+    string
+    option defconfig_list
+    default "defconfig"
+    help
+      List of default profiles (special options).
+
+config ALLNOCONFIG_Y
+    bool "The default is y when using allnoconfig"
+    option allnoconfig_y
+    default y
+    help
+      This option is still enabled by default when using allnoconfig.
+
+endmenu
+
+# ==================== Test 8: Environment Variables ====================
+menu "Test 8: Environment variables"
+
+config ENV_VAR_TEST
+    string "Environment variable testing"
+    option env="MY_ENV_VAR"
+    help
+      Read values ​​from environment variables.
+
+config ARCH_PATH
+    string
+    option env="ARCH"
+    default "arm"
+
+config BUILD_DIR
+    string "Build directory"
+    default "$(BUILD_PATH)/output"
+    help
+      Use environment variables or Kconfig variables.
+
+endmenu
+
+# ==================== Test 9: Combination of imply and select ====================
+menu "Test 9: Combination of imply and select"
+
+config LIB_CORE
+    bool "core library"
+    default n
+
+config LIB_UTIL
+    bool "Tool library"
+    default n
+
+config LIB_DEBUG
+    bool "Debugging library"
+    default n
+
+config APPLICATION
+    bool "app"
+    select LIB_CORE
+    imply LIB_UTIL
+    imply LIB_DEBUG if DEBUG_MODE
+    default n
+    help
+      app:
+      - Force dependency on core library (select)
+      - It is recommended to use the tool library (imply)
+      - It is recommended to use the debug library in debug mode (condition implies)
+
+endmenu
+
+# ==================== Test 10: Advanced tristate usage ====================
+menu "Test 10: Advanced tristate usage"
+
+config MODULES_SUPPORT
+    bool "Module system support"
+    default n
+
+config DRIVER_A
+    tristate "Driver A"
+    depends on MODULES_SUPPORT || y
+    default m if MODULES_SUPPORT
+    default y
+    help
+      If modules are supported, they will be compiled into modules by default;
+      Otherwise, it is compiled into the kernel.
+
+config DRIVER_B
+    tristate "Driver B"
+    depends on DRIVER_A
+    default m
+    help
+      Depends on driver A.
+      If A=m, B can be at most m.
+      If A=y, B can be m or y.
+
+endmenu
+
+# ==================== Test 11: Complex imply condition ====================
+menu "Test 11: Complex imply condition"
+
+config COMPLEX_IMPLY_1
+    bool "complex implies 1"
+    imply FEATURE_A if ARCH_ARM && OPTIMIZATION_LEVEL >= 2
+    imply FEATURE_B if ARCH_RISCV || DEBUG_MODE
+    imply FEATURE_C if !(ARCH_ARM && ARCH_RISCV)
+    default n
+    help
+      Multiple conditions imply, testing complex logical expressions.
+
+endmenu
+
+# ==================== Test 12: Real Scenario - File System ====================
+menu "Test 12: Real Scenario - File System Configuration"
+
+config VFS_ENABLE
+    bool "Enable virtual file system"
+    imply FS_EXT4
+    imply FS_FAT
+    default n
+    help
+      To enable VFS, it is recommended to enable common file systems at the same time.
+
+config FS_EXT4
+    tristate "EXT4 file system"
+    depends on VFS_ENABLE
+    default m if MODULES_SUPPORT
+    default y
+    help
+      EXT4 file system support.
+
+config FS_FAT
+    tristate "FAT file system"
+    depends on VFS_ENABLE
+    default y
+    help
+      FAT/FAT32 file system support.
+
+config FS_ROMFS
+    bool "ROMFS file system"
+    depends on VFS_ENABLE
+    default n
+    help
+      Read-only file system.
+
+config FS_DEBUG
+    bool "File system debugging"
+    depends on VFS_ENABLE
+    depends on DEBUG_MODE
+    select LIB_DEBUG
+    default y if DEBUG_MODE && OPTIMIZATION_LEVEL = 0
+    default n
+    help
+      File system debugging capabilities.
+
+endmenu

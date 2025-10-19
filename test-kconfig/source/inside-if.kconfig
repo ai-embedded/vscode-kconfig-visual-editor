@@ -1,0 +1,5 @@
+# inside-if.kconfig - included by source inside if block
+config INSIDE_IF_CONFIG
+    bool "Config from inside if"
+    help
+      Sourced from within an if block

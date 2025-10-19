@@ -1,0 +1,25 @@
+# osource test - sub configuration file
+# This file is referenced by Kconfig via osource
+
+config OSOURCE_TEST_1
+    bool "osource test 1"
+    default n
+    help
+      This option comes from the file referenced via osource.
+
+config OSOURCE_TEST_2
+    int "osource test parameter"
+    range 0 100
+    default 50
+    help
+      Verify that osource can load config entries correctly.
+
+menu "osource submenu"
+
+config OSOURCE_SUBMENU_ITEM
+    bool "osource submenu item"
+    default y
+    help
+      Menu item defined in the osource file.
+
+endmenu

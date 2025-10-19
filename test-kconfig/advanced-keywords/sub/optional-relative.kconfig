@@ -1,0 +1,15 @@
+# orsource test - optional relative path configuration file
+
+config OPTIONAL_RELATIVE_FEATURE
+    bool "orsource optional feature"
+    default n
+    help
+      Optional config item loaded via orsource to verify relative path handling.
+
+menu "orsource submenu"
+
+config OPTIONAL_RELATIVE_MENU_ITEM
+    bool "orsource menu item"
+    default y
+
+endmenu

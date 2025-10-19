@@ -1,0 +1,15 @@
+# osource optional file test (this file exists)
+# This file is optionally included via osource keyword
+
+config OSOURCED_EXISTING_CONFIG
+    bool "osource included existing file config"
+    default y
+    help
+      This is a configuration item included via osource keyword.
+      This file exists, so the config will be included normally.
+
+config OSOURCE_HEX_CONFIG
+    hex "osource hexadecimal config"
+    default 0x1000
+    help
+      Tests hexadecimal configuration in osource file.

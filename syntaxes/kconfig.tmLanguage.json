@@ -1,0 +1,269 @@
+{
+  "$schema": "https://raw.githubusercontent.com/martinring/tmlanguage/master/tmlanguage.json",
+  "name": "Kconfig",
+  "scopeName": "source.kconfig",
+  "patterns": [
+    {
+      "include": "#comment"
+    },
+    {
+      "begin": "^\\s*(if)\\s+",
+      "end": "$",
+      "beginCaptures": {
+        "1": {
+          "name": "keyword.control.conditional.kconfig"
+        }
+      },
+      "patterns": [
+        {
+          "include": "#expression"
+        },
+        {
+          "include": "#comment"
+        }
+      ]
+    },
+    {
+      "match": "^\\s*(endif|endchoice|endmenu|optional)\\b",
+      "captures": {
+        "1": {
+          "name": "keyword.control.conditional.kconfig"
+        }
+      }
+    },
+    {
+      "begin": "^\\s*(config|menuconfig|choice|imply)\\s+",
+      "end": "(\\s|$)",
+      "beginCaptures": {
+        "1": {
+          "name": "keyword.control.definition.kconfig"
+        }
+      },
+      "patterns": [
+        {
+          "include": "#symbol"
+        },
+        {
+          "include": "#comment"
+        }
+      ]
+    },
+    {
+      "begin": "^\\s*(range)\\s+",
+      "end": "$",
+      "beginCaptures": {
+        "1": {
+          "name": "keyword.control.range.kconfig"
+        }
+      },
+      "patterns": [
+        {
+          "include": "#if"
+        },
+        {
+          "include": "#expression"
+        },
+        {
+          "include": "#comment"
+        }
+      ]
+    },
+    {
+      "begin": "^(\\s*)(---help---|help)\\b",
+      "patterns": [
+        {
+          "include": "#helptext"
+        }
+      ],
+      "end": "^(?!\\1\\s+|$)",
+      "beginCaptures": {
+        "2": {
+          "name": "keyword.control.help.kconfig"
+        }
+      }
+    },
+    {
+      "begin": "\\b(option)\\s+(defconfig_list|modules|allnoconfig_y)=?",
+      "end": "$",
+      "beginCaptures": {
+        "1": {
+          "name": "keyword.control.option.kconfig"
+        },
+        "2": {
+          "name": "support.variable.option.kconfig"
+        }
+      },
+      "patterns": [
+        {
+          "include": "#expression"
+        },
+        {
+          "include": "#comment"
+        }
+      ]
+    },
+    {
+      "begin": "^\\s*(bool|tristate|string|hex|int)\\s+",
+      "end": "$",
+      "beginCaptures": {
+        "1": {
+          "name": "storage.type.kconfig"
+        }
+      },
+      "patterns": [
+        {
+          "include": "#string"
+        },
+        {
+          "include": "#if"
+        },
+        {
+          "include": "#comment"
+        }
+      ]
+    },
+    {
+      "begin": "^\\s*(visible if|depends on)\\s+",
+      "end": "$",
+      "beginCaptures": {
+        "1": {
+          "name": "keyword.control.dependency.kconfig"
+        }
+      },
+      "patterns": [
+        {
+          "include": "#expression"
+        },
+        {
+          "include": "#comment"
+        }
+      ]
+    },
+    {
+      "begin": "^\\s*(select|default|def_bool|def_tristate)\\s+",
+      "end": "$",
+      "beginCaptures": {
+        "1": {
+          "name": "keyword.control.assignment.kconfig"
+        }
+      },
+      "patterns": [
+        {
+          "include": "#if"
+        },
+        {
+          "include": "#expression"
+        },
+        {
+          "include": "#comment"
+        }
+      ]
+    },
+    {
+      "begin": "^\\s*(prompt|source|rsource|osource|orsource|mainmenu|menu|comment)\\s+",
+      "end": "$",
+      "beginCaptures": {
+        "1": {
+          "name": "keyword.control.directive.kconfig"
+        }
+      },
+      "patterns": [
+        {
+          "include": "#string"
+        },
+        {
+          "include": "#if"
+        },
+        {
+          "include": "#comment"
+        }
+      ]
+    }
+  ],
+  "repository": {
+    "comment": {
+      "match": "#.*",
+      "name": "comment.line.number-sign.kconfig"
+    },
+    "string": {
+      "begin": "\"",
+      "end": "(?<!\\\\)\"",
+      "name": "string.quoted.double.kconfig",
+      "patterns": [
+        {
+          "match": "\\\\.",
+          "name": "constant.character.escape.kconfig"
+        }
+      ]
+    },
+    "symbol": {
+      "match": "[a-zA-Z_][a-zA-Z0-9_]*",
+      "name": "entity.name.variable.kconfig"
+    },
+    "expression": {
+      "patterns": [
+        {
+          "include": "#comment"
+        },
+        {
+          "include": "#string"
+        },
+        {
+          "include": "#number"
+        },
+        {
+          "include": "#tristate"
+        },
+        {
+          "include": "#expression-operators"
+        },
+        {
+          "include": "#symbol"
+        },
+        {
+          "include": "#line-continuation"
+        }
+      ]
+    },
+    "expression-operators": {
+      "match": "(=|!=|<|>|<=|>=|!|&&|\\|\\||\\(|\\))",
+      "name": "keyword.operator.logical.kconfig"
+    },
+    "number": {
+      "match": "\\b[+-]?(0x[\\da-fA-F]+|[0-9]+)\\b",
+      "name": "constant.numeric.kconfig"
+    },
+    "tristate": {
+      "match": "\\b[ymn]\\b",
+      "name": "constant.language.tristate.kconfig"
+    },
+    "if": {
+      "begin": "\\bif\\s+",
+      "end": "($|#)",
+      "beginCaptures": {
+        "0": {
+          "name": "keyword.control.conditional.kconfig"
+        }
+      },
+      "patterns": [
+        {
+          "include": "#expression"
+        }
+      ]
+    },
+    "line-continuation": {
+      "begin": "\\\\$",
+      "end": "^",
+      "beginCaptures": {
+        "0": {
+          "name": "constant.character.escape.line-continuation.kconfig"
+        }
+      }
+    },
+    "helptext": {
+      "begin": "^(\\s+).*",
+      "end": "^(?!\\1)",
+      "name": "string.unquoted.heredoc.help.kconfig"
+    }
+  }
+}

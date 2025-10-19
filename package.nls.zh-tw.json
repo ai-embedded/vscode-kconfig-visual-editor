@@ -1,0 +1,32 @@
+{
+  "displayName": "Kconfig Visual Editor",
+  "description": "Visual editor for Kconfig files with syntax highlighting, auto-completion, validation and menuconfig interface",
+
+  "command.menuconfig.start": "開啟 Kconfig 視覺化編輯器",
+  "command.saveDefconfig": "儲存預設配置",
+
+  "configuration.title": "Kconfig 視覺化編輯器",
+
+  "config.enableValidation": "啟用/停用 Kconfig 檔案的語法驗證",
+  "config.autoHeaderPath": "生成的 C 標頭檔儲存路徑（預設：與 .config 檔案同目錄的 config.h）。支援絕對路徑或相對於 .config 所在目錄的路徑",
+
+  "config.debug.title": "除錯",
+  "config.debug.enabled": "啟用除錯模式，在輸出面板顯示詳細日誌",
+  "config.debug.menu": "啟用選單特定的除錯日誌，用於排查選單載入問題",
+
+  "config.log.title": "日誌記錄",
+  "config.log.enabled": "啟用 Kconfig 操作的一般日誌記錄",
+  "config.log.level": "設定日誌級別（除錯、資訊、警告、錯誤）",
+  "config.log.outputChannel": "在 VS Code 輸出面板顯示日誌",
+
+  "config.smartLazyLoad.title": "智慧延遲載入",
+  "config.smartLazyLoad.enabled": "啟用智慧延遲載入以提升大型 Kconfig 檔案的效能",
+  "config.smartLazyLoad.threshold": "觸發延遲載入的閾值（選單項數量）",
+  "config.smartLazyLoad.maxDepth": "初始選單樹展開的最大深度",
+  "config.smartLazyLoad.cacheSize": "已載入選單項的快取大小",
+
+  "config.validation.title": "驗證",
+  "config.validation.checkSymbolReferences": "檢查符號引用是否有效",
+  "config.validation.checkDependencies": "驗證配置相依關係",
+  "config.validation.warnUnusedSymbols": "顯示未使用符號的警告"
+}

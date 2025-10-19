@@ -1,0 +1,156 @@
+# Complex multi-level Kconfig test file
+mainmenu "Complex Test Configuration"
+
+menu "Level 1 - Main Settings"
+    config L1_FEATURE
+        bool "Level 1 Feature"
+        default y
+        help
+          This is a level 1 feature.
+
+    menu "Level 2 - Sub Settings"
+        config L2_FEATURE
+            bool "Level 2 Feature"
+            default n
+            help
+              This is a level 2 feature.
+
+        menu "Level 3 - Nested Settings"
+            config L3_FEATURE
+                bool "Level 3 Feature"
+                default n
+                help
+                  This is a level 3 feature.
+
+            menu "Level 4 - Deep Settings"
+                config L4_FEATURE
+                    bool "Level 4 Feature"
+                    default n
+                    help
+                      This is a level 4 feature.
+
+                config L4_VALUE
+                    int "Level 4 Value"
+                    range 0 100
+                    default 50
+                    help
+                      This is a level 4 value.
+            endmenu
+        endmenu
+
+        menu "Level 3 - Another Branch"
+            config L3_ANOTHER_FEATURE
+                bool "Level 3 Another Feature"
+                default y
+                help
+                  This is another level 3 feature.
+        endmenu
+    endmenu
+endmenu
+
+menu "Level 1 - Network Configuration"
+    config NETWORK_ENABLE
+        bool "Enable Network"
+        default y
+        help
+          Enable network functionality.
+
+    menu "Level 2 - WiFi Settings"
+        config WIFI_ENABLE
+            bool "Enable WiFi"
+            depends on NETWORK_ENABLE
+            default y
+            help
+              Enable WiFi functionality.
+
+        config WIFI_SSID
+            string "WiFi SSID"
+            depends on WIFI_ENABLE
+            default "MyNetwork"
+            help
+              WiFi network name.
+
+        menu "Level 3 - WiFi Security"
+            choice WIFI_AUTH
+                prompt "WiFi Authentication"
+                depends on WIFI_ENABLE
+                default WIFI_AUTH_WPA2
+
+                config WIFI_AUTH_OPEN
+                    bool "Open"
+                config WIFI_AUTH_WPA2
+                    bool "WPA2"
+                config WIFI_AUTH_WPA3
+                    bool "WPA3"
+            endchoice
+
+            config WIFI_PASSWORD
+                string "WiFi Password"
+                depends on WIFI_ENABLE && !WIFI_AUTH_OPEN
+                default ""
+                help
+                  WiFi password.
+        endmenu
+    endmenu
+
+    menu "Level 2 - Ethernet Settings"
+        config ETHERNET_ENABLE
+            bool "Enable Ethernet"
+            depends on NETWORK_ENABLE
+            default n
+            help
+              Enable Ethernet functionality.
+
+        menu "Level 3 - Ethernet PHY"
+            config ETH_PHY_ADDR
+                int "PHY Address"
+                depends on ETHERNET_ENABLE
+                range 0 31
+                default 1
+                help
+                  Ethernet PHY address.
+        endmenu
+    endmenu
+endmenu
+
+menu "Level 1 - Performance Tuning"
+    menu "Level 2 - Memory Management"
+        config MEM_POOL_SIZE
+            int "Memory Pool Size (KB)"
+            range 16 1024
+            default 256
+            help
+              Size of the memory pool in kilobytes.
+
+        menu "Level 3 - Allocator Configuration"
+            config USE_CUSTOM_ALLOCATOR
+                bool "Use Custom Allocator"
+                default n
+                help
+                  Use a custom memory allocator.
+
+            config ALLOCATOR_DEBUG
+                bool "Enable Allocator Debug"
+                depends on USE_CUSTOM_ALLOCATOR
+                default n
+                help
+                  Enable debug features in the allocator.
+        endmenu
+    endmenu
+
+    menu "Level 2 - CPU Optimization"
+        config CPU_FREQ_MAX
+            int "Maximum CPU Frequency (MHz)"
+            range 80 240
+            default 160
+            help
+              Maximum CPU frequency in MHz.
+
+        config TASK_WDT_TIMEOUT
+            int "Task Watchdog Timeout (s)"
+            range 1 60
+            default 5
+            help
+              Task watchdog timeout in seconds.
+    endmenu
+endmenu

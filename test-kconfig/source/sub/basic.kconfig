@@ -1,0 +1,31 @@
+# Basic source test file
+# This file is included via source keyword
+
+config SOURCED_CONFIG_BASIC
+    bool "Config included via source"
+    default y
+    help
+      This is a configuration item included via basic source keyword.
+      Verifies that the source keyword's basic functionality works properly.
+
+menu "Menu included via source"
+
+    config SOURCED_SUBMENU_CONFIG
+        tristate "Source submenu config"
+        default m
+        help
+          Configuration item in menu included via source.
+
+    config OPTION_F
+        bool "Option F"
+        default n
+        help
+            This is option F, can be selected by option E
+
+    config SOURCED_STRING_CONFIG
+        string "Source string config"
+        default "source_test"
+        help
+          Tests string type configuration in source file.
+
+endmenu

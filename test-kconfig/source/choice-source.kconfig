@@ -1,0 +1,7 @@
+# choice-source.kconfig - file sourced inside choice
+
+config CHOICE_B
+    bool "Choice Option B (from source)"
+    
+config CHOICE_C
+    bool "Choice Option C (from source)"

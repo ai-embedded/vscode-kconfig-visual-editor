@@ -1,0 +1,5 @@
+# inside-menu.kconfig - included by source inside menu block
+config INSIDE_MENU_CONFIG
+    bool "Config from inside menu"
+    help
+      Sourced from within a menu block

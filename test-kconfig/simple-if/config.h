@@ -1,0 +1,11 @@
+/*
+ * Automatically generated file; DO NOT EDIT.
+ */
+
+#define CONFIG_ENABLE_FEATURE 1
+#define CONFIG_FEATURE_ITEM1 1
+#define CONFIG_FEATURE_ITEM2 "test"
+#define CONFIG_FEATURE_ITEM3 10
+#define CONFIG_ALWAYS_VISIBLE 1
+#define CONFIG_ANOTHER_SWITCH 1
+#define CONFIG_NESTED_ITEM 0x100

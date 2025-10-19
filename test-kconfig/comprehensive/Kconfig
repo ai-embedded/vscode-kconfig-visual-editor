@@ -1,0 +1,564 @@
+# Comprehensive Test Kconfig file for the extension
+mainmenu "Complete Test Configuration"
+
+# ===============================================================================
+# Level 1: System Configuration
+# ===============================================================================
+menu "System Configuration"
+    config SYSTEM_ENABLE
+        bool "Enable System Features"
+        default y
+        help
+          Master switch to enable system-wide features.
+          This controls the availability of all system configuration options.
+
+    # Level 2: Boot Configuration
+    menu "Boot Configuration"
+        depends on SYSTEM_ENABLE
+        
+        config BOOT_MODE
+            int "Boot Mode"
+            range 0 3
+            default 0
+            help
+              Select the boot mode for the system:
+              0 - Normal boot
+              1 - Recovery mode
+              2 - Debug mode
+              3 - Factory reset
+
+        choice BOOT_SOURCE
+            prompt "Boot Source"
+            default BOOT_FROM_FLASH
+            help
+              Select the primary boot source.
+
+            config BOOT_FROM_FLASH
+                bool "Boot from Flash"
+                help
+                  Boot from internal flash memory.
+
+            config BOOT_FROM_SD
+                bool "Boot from SD Card"
+                help
+                  Boot from external SD card.
+
+            config BOOT_FROM_USB
+                bool "Boot from USB"
+                help
+                  Boot from USB device.
+        endchoice
+
+        # Level 3: Flash Configuration
+        menu "Flash Configuration"
+            depends on BOOT_FROM_FLASH
+            
+            config FLASH_SIZE
+                hex "Flash Size"
+                default 0x400000
+                help
+                  Total flash size in bytes.
+
+            config FLASH_FREQ
+                int "Flash Frequency (MHz)"
+                range 20 80
+                default 40
+                help
+                  Flash SPI frequency in MHz.
+
+            # Level 4: Flash Partitions
+            menu "Flash Partitions"
+                config PARTITION_TABLE_CUSTOM
+                    bool "Use Custom Partition Table"
+                    default n
+                    help
+                      Use a custom partition table instead of the default.
+
+                if PARTITION_TABLE_CUSTOM
+                    config PARTITION_TABLE_FILENAME
+                        string "Custom Partition Table File"
+                        default "partitions.csv"
+                        help
+                          Path to the custom partition table CSV file.
+
+                    # Level 5: Individual Partitions
+                    menu "Individual Partition Settings"
+                        config BOOTLOADER_SIZE
+                            hex "Bootloader Partition Size"
+                            default 0x8000
+                            help
+                              Size of the bootloader partition.
+
+                        config APP_SIZE
+                            hex "Application Partition Size"
+                            default 0x100000
+                            help
+                              Size of the application partition.
+
+                        config SPIFFS_SIZE
+                            hex "SPIFFS Partition Size"
+                            default 0x100000
+                            help
+                              Size of the SPIFFS file system partition.
+
+                        # Level 6: SPIFFS Configuration
+                        menu "SPIFFS Advanced Settings"
+                            depends on SPIFFS_SIZE > 0
+                            
+                            config SPIFFS_PAGE_SIZE
+                                int "SPIFFS Page Size"
+                                range 256 2048
+                                default 256
+                                help
+                                  SPIFFS page size in bytes.
+
+                            config SPIFFS_BLOCK_SIZE
+                                int "SPIFFS Block Size"
+                                range 4096 65536
+                                default 4096
+                                help
+                                  SPIFFS block size in bytes.
+                        endmenu
+                    endmenu
+                endif
+            endmenu
+        endmenu
+    endmenu
+
+    # Level 2: Memory Management
+    menu "Memory Management"
+        depends on SYSTEM_ENABLE
+
+        config HEAP_SIZE
+            hex "Main Heap Size"
+            default 0x20000
+            help
+              Size of the main heap in bytes.
+
+        # Level 3: Memory Allocation
+        menu "Memory Allocation Strategy"
+            choice MALLOC_IMPLEMENTATION
+                prompt "Memory Allocator"
+                default MALLOC_STANDARD
+                help
+                  Choose the memory allocation strategy.
+
+                config MALLOC_STANDARD
+                    bool "Standard malloc/free"
+                    help
+                      Use standard C library malloc/free.
+
+                config MALLOC_POOLED
+                    bool "Pooled Memory Allocator"
+                    help
+                      Use a pooled memory allocation strategy.
+
+                config MALLOC_CUSTOM
+                    bool "Custom Allocator"
+                    help
+                      Use a custom memory allocator.
+            endchoice
+
+            # Level 4: Pooled Allocator Settings
+            menu "Pooled Allocator Configuration"
+                depends on MALLOC_POOLED
+
+                config POOL_COUNT
+                    int "Number of Memory Pools"
+                    range 1 16
+                    default 4
+                    help
+                      Number of different memory pools to create.
+
+                config SMALL_POOL_SIZE
+                    hex "Small Pool Size"
+                    default 0x1000
+                    help
+                      Size of small memory pool.
+
+                config MEDIUM_POOL_SIZE
+                    hex "Medium Pool Size"
+                    default 0x4000
+                    help
+                      Size of medium memory pool.
+
+                config LARGE_POOL_SIZE
+                    hex "Large Pool Size"
+                    default 0x10000
+                    help
+                      Size of large memory pool.
+            endmenu
+        endmenu
+    endmenu
+endmenu
+
+# ===============================================================================
+# Level 1: Network Configuration
+# ===============================================================================
+menu "Network Configuration"
+    config NETWORK_ENABLE
+        bool "Enable Network Stack"
+        default y
+        help
+          Enable the network protocol stack.
+
+    # Level 2: WiFi Configuration
+    menu "WiFi Configuration"
+        depends on NETWORK_ENABLE
+
+        config WIFI_ENABLED
+            bool "Enable WiFi"
+            default y
+            help
+              Enable WiFi functionality.
+
+        if WIFI_ENABLED
+            config WIFI_SSID
+                string "Default WiFi SSID"
+                default "MyNetwork"
+                help
+                  Default WiFi network name.
+
+            config WIFI_PASSWORD
+                string "Default WiFi Password"
+                default ""
+                help
+                  Default WiFi password (leave empty for open network).
+
+            # Level 3: WiFi Advanced Settings
+            menu "WiFi Advanced Settings"
+                config WIFI_CHANNEL
+                    int "WiFi Channel"
+                    range 1 14
+                    default 1
+                    help
+                      WiFi channel to use.
+
+                choice WIFI_POWER_SAVE
+                    prompt "WiFi Power Save Mode"
+                    default WIFI_PS_MIN_MODEM
+                    help
+                      WiFi power saving mode.
+
+                    config WIFI_PS_NONE
+                        bool "No Power Save"
+                        help
+                          No power saving.
+
+                    config WIFI_PS_MIN_MODEM
+                        bool "Minimum Modem Power Save"
+                        help
+                          Minimum modem power saving.
+
+                    config WIFI_PS_MAX_MODEM
+                        bool "Maximum Modem Power Save"
+                        help
+                          Maximum modem power saving.
+                endchoice
+
+                # Level 4: Security Settings
+                menu "WiFi Security Settings"
+                    choice WIFI_AUTH_MODE
+                        prompt "WiFi Authentication Mode"
+                        default WIFI_AUTH_WPA2_PSK
+                        help
+                          WiFi authentication mode.
+
+                        config WIFI_AUTH_OPEN
+                            bool "Open (No Security)"
+                        config WIFI_AUTH_WEP
+                            bool "WEP"
+                        config WIFI_AUTH_WPA_PSK
+                            bool "WPA PSK"
+                        config WIFI_AUTH_WPA2_PSK
+                            bool "WPA2 PSK"
+                        config WIFI_AUTH_WPA_WPA2_PSK
+                            bool "WPA/WPA2 PSK"
+                        config WIFI_AUTH_WPA3_PSK
+                            bool "WPA3 PSK"
+                    endchoice
+
+                    # Level 5: Enterprise Security
+                    menu "Enterprise Security (WPA2/WPA3 Enterprise)"
+                        depends on WIFI_AUTH_WPA2_PSK || WIFI_AUTH_WPA3_PSK
+
+                        config WIFI_ENTERPRISE_ENABLE
+                            bool "Enable Enterprise Mode"
+                            default n
+                            help
+                              Enable WPA2/WPA3 Enterprise authentication.
+
+                        if WIFI_ENTERPRISE_ENABLE
+                            config WIFI_ENTERPRISE_USERNAME
+                                string "Enterprise Username"
+                                default ""
+                                help
+                                  Username for enterprise authentication.
+
+                            config WIFI_ENTERPRISE_IDENTITY
+                                string "Enterprise Identity"
+                                default ""
+                                help
+                                  Identity for enterprise authentication.
+                        endif
+                    endmenu
+                endmenu
+            endmenu
+        endif
+    endmenu
+
+    # Level 2: Ethernet Configuration
+    menu "Ethernet Configuration"
+        depends on NETWORK_ENABLE
+
+        config ETHERNET_ENABLE
+            bool "Enable Ethernet"
+            default n
+            help
+              Enable Ethernet functionality.
+
+        if ETHERNET_ENABLE
+            # Level 3: PHY Configuration
+            menu "Ethernet PHY Configuration"
+                choice ETH_PHY_MODEL
+                    prompt "Ethernet PHY Model"
+                    default ETH_PHY_LAN8720
+                    help
+                      Select the Ethernet PHY model.
+
+                    config ETH_PHY_LAN8720
+                        bool "LAN8720"
+                    config ETH_PHY_TLK110
+                        bool "TLK110"
+                    config ETH_PHY_RTL8201
+                        bool "RTL8201"
+                    config ETH_PHY_DP83848
+                        bool "DP83848"
+                endchoice
+
+                config ETH_PHY_ADDR
+                    int "PHY Address"
+                    range 0 31
+                    default 1
+                    help
+                      Ethernet PHY address.
+
+                config ETH_PHY_POWER_PIN
+                    int "PHY Power Pin"
+                    range -1 39
+                    default -1
+                    help
+                      GPIO pin to control PHY power (-1 if not used).
+            endmenu
+        endif
+    endmenu
+
+    # Level 2: TCP/IP Configuration
+    menu "TCP/IP Configuration"
+        depends on NETWORK_ENABLE
+
+        config TCPIP_TASK_STACK_SIZE
+            int "TCP/IP Task Stack Size"
+            range 2048 65536
+            default 3072
+            help
+              TCP/IP task stack size in bytes.
+
+        # Level 3: DHCP Configuration
+        menu "DHCP Configuration"
+            config DHCP_CLIENT_ENABLE
+                bool "Enable DHCP Client"
+                default y
+                help
+                  Enable DHCP client functionality.
+
+            config DHCP_SERVER_ENABLE
+                bool "Enable DHCP Server"
+                default n
+                help
+                  Enable DHCP server functionality.
+
+            if DHCP_SERVER_ENABLE
+                config DHCP_SERVER_LEASE_TIME
+                    int "DHCP Lease Time (seconds)"
+                    range 60 86400
+                    default 3600
+                    help
+                      DHCP lease time in seconds.
+            endif
+        endmenu
+    endmenu
+endmenu
+
+# ===============================================================================
+# Level 1: Security Features
+# ===============================================================================
+menu "Security Features"
+    config SECURITY_ENABLE
+        bool "Enable Security Features"
+        default y
+        help
+          Enable security-related features.
+
+    # Level 2: Encryption
+    menu "Encryption Settings"
+        depends on SECURITY_ENABLE
+
+        config CRYPTO_HARDWARE_ENABLE
+            bool "Enable Hardware Crypto Acceleration"
+            default y
+            help
+              Use hardware acceleration for cryptographic operations.
+
+        # Level 3: Symmetric Encryption
+        menu "Symmetric Encryption"
+            config AES_ENABLE
+                bool "Enable AES"
+                default y
+                help
+                  Enable AES encryption support.
+
+            if AES_ENABLE
+                choice AES_KEY_SIZE
+                    prompt "Default AES Key Size"
+                    default AES_256
+                    help
+                      Default AES key size.
+
+                    config AES_128
+                        bool "128-bit"
+                    config AES_192
+                        bool "192-bit"
+                    config AES_256
+                        bool "256-bit"
+                endchoice
+            endif
+        endmenu
+
+        # Level 3: Hash Functions
+        menu "Hash Functions"
+            config SHA_ENABLE
+                bool "Enable SHA"
+                default y
+                help
+                  Enable SHA hash functions.
+
+            if SHA_ENABLE
+                config SHA1_ENABLE
+                    bool "Enable SHA-1"
+                    default n
+                    help
+                      Enable SHA-1 (not recommended for new applications).
+
+                config SHA256_ENABLE
+                    bool "Enable SHA-256"
+                    default y
+                    help
+                      Enable SHA-256.
+
+                config SHA512_ENABLE
+                    bool "Enable SHA-512"
+                    default n
+                    help
+                      Enable SHA-512.
+            endif
+        endmenu
+    endmenu
+
+    # Level 2: Secure Boot
+    menu "Secure Boot"
+        depends on SECURITY_ENABLE
+
+        config SECURE_BOOT_ENABLE
+            bool "Enable Secure Boot"
+            default n
+            help
+              Enable secure boot verification.
+
+        if SECURE_BOOT_ENABLE
+            choice SECURE_BOOT_VERSION
+                prompt "Secure Boot Version"
+                default SECURE_BOOT_V2
+                help
+                  Select secure boot version.
+
+                config SECURE_BOOT_V1
+                    bool "Secure Boot V1"
+                config SECURE_BOOT_V2
+                    bool "Secure Boot V2"
+            endchoice
+        endif
+    endmenu
+endmenu
+
+# ===============================================================================
+# Level 1: Power Management
+# ===============================================================================
+menu "Power Management"
+    config POWER_MANAGEMENT_ENABLE
+        bool "Enable Power Management"
+        default y
+        help
+          Enable power management features.
+
+    if POWER_MANAGEMENT_ENABLE
+        # Level 2: Sleep Modes
+        menu "Sleep Mode Configuration"
+            choice POWER_MODE
+                prompt "Default Power Mode"
+                default POWER_MODE_NORMAL
+                help
+                  Default power mode for the system.
+
+                config POWER_MODE_NORMAL
+                    bool "Normal Mode"
+                config POWER_MODE_LIGHT_SLEEP
+                    bool "Light Sleep Mode"
+                config POWER_MODE_DEEP_SLEEP
+                    bool "Deep Sleep Mode"
+            endchoice
+
+            # Level 3: Deep Sleep Configuration
+            menu "Deep Sleep Configuration"
+                depends on POWER_MODE_DEEP_SLEEP
+
+                config DEEP_SLEEP_WAKEUP_DELAY
+                    int "Deep Sleep Wakeup Delay (ms)"
+                    range 0 5000
+                    default 0
+                    help
+                      Delay before entering deep sleep mode.
+
+                # Level 4: Wakeup Sources
+                menu "Wakeup Sources"
+                    config WAKEUP_EXT0_ENABLE
+                        bool "Enable EXT0 Wakeup"
+                        default n
+                        help
+                          Enable external wakeup source 0.
+
+                    config WAKEUP_EXT1_ENABLE
+                        bool "Enable EXT1 Wakeup"
+                        default n
+                        help
+                          Enable external wakeup source 1.
+
+                    config WAKEUP_TIMER_ENABLE
+                        bool "Enable Timer Wakeup"
+                        default n
+                        help
+                          Enable timer-based wakeup.
+
+                    if WAKEUP_TIMER_ENABLE
+                        config WAKEUP_TIMER_INTERVAL
+                            int "Timer Wakeup Interval (seconds)"
+                            range 1 3600
+                            default 60
+                            help
+                              Timer wakeup interval in seconds.
+                    endif
+                endmenu
+            endmenu
+        endmenu
+    endif
+endmenu

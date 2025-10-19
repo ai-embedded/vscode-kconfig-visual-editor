@@ -1,0 +1,7 @@
+# if-source.kconfig - file sourced inside if block
+
+config IF_SOURCE_CONFIG
+    bool "Config from if source"
+    help
+      This config is sourced inside an if block
+      It should inherit the if condition

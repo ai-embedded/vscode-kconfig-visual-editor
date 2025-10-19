@@ -1,0 +1,16 @@
+# Test configuration when the optional osource file exists
+
+config OPTIONAL_CONFIG_FEATURE
+    bool "Optional config feature"
+    default n
+    help
+      Used to verify that osource loads config entries normally when the file exists.
+
+menu "Optional config menu"
+
+config OPTIONAL_CONFIG_MENU_ITEM
+    int "Optional menu parameter"
+    range 0 10
+    default 5
+
+endmenu

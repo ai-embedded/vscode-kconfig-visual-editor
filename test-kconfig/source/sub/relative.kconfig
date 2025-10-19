@@ -1,0 +1,32 @@
+# rsource relative path test file
+# This file is included via rsource keyword with relative path
+
+config RSOURCED_CONFIG
+    bool "Config included via rsource"
+    default n
+    help
+      This is a configuration item included via rsource keyword with relative path.
+      Verifies rsource relative path resolution functionality.
+
+choice RSOURCE_CHOICE
+    prompt "rsource choice test"
+    default RSOURCE_OPTION_A
+
+    config RSOURCE_OPTION_A
+        bool "Option A"
+        help
+          Choice option A in rsource included file.
+
+    config RSOURCE_OPTION_B
+        bool "Option B"
+        help
+          Choice option B in rsource included file.
+
+endchoice
+
+config RSOURCE_INT_CONFIG
+    int "rsource integer config"
+    range 1 100
+    default 42
+    help
+      Tests integer type configuration in rsource file.

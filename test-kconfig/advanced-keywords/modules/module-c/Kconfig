@@ -1,0 +1,56 @@
+# Module C configuration
+menu "Module C"
+
+config MODULE_C_ENABLE
+    bool "Enable module C"
+    default n
+    help
+      Enable module C functionality.
+
+config MODULE_C_DEBUG
+    bool "Module C Debugging"
+    depends on MODULE_C_ENABLE && DEBUG_MODE
+    select LIB_DEBUG
+    default y if DEBUG_MODE
+    help
+      Enables debugging of module C.
+
+config MODULE_C_ARCH_SPECIFIC
+    bool "Module C Architecture Specific Functions"
+    depends on MODULE_C_ENABLE
+    depends on ARCH_ARM || ARCH_RISCV
+    default n
+    help
+      Enables the architecture-specific functionality of module C.
+
+choice
+    prompt "Module C working mode"
+    depends on MODULE_C_ENABLE
+    default MODULE_C_MODE_NORMAL
+
+config MODULE_C_MODE_NORMAL
+    bool "Normal mode"
+    help
+      Normal operating mode of module C.
+
+config MODULE_C_MODE_FAST
+    bool "Quick mode"
+    help
+      Fast working mode of module C.
+
+config MODULE_C_MODE_LOW_POWER
+    bool "low power mode"
+    help
+      Low power operating mode of module C.
+
+endchoice
+
+config MODULE_C_PRIORITY
+    int "Module C priority"
+    depends on MODULE_C_ENABLE
+    range 0 10
+    default 5
+    help
+      Configure the priority of module C (0-10, the larger the value, the higher the priority).
+
+endmenu

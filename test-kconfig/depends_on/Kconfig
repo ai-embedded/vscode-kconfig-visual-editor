@@ -1,0 +1,50 @@
+# Simple depends on test file
+
+config ENABLE_FEATURE_A
+    bool "Enable Feature A"
+    default n
+    help
+        This is the main feature A.
+
+config FEATURE_A_OPTION1
+    bool "Feature A Option 1"
+    depends on ENABLE_FEATURE_A
+    default y
+    help
+        This option is only available when Feature A is enabled.
+
+config FEATURE_A_OPTION2
+    int "Feature A Option 2 (Value)"
+    depends on ENABLE_FEATURE_A
+    range 1 100
+    default 50
+    help
+        Configure a value for Feature A. Only available when Feature A is enabled.
+
+config ENABLE_FEATURE_B
+    bool "Enable Feature B"
+    default n
+    help
+        This is feature B.
+
+config ADVANCED_MODE
+    bool "Enable Advanced Mode"
+    depends on ENABLE_FEATURE_A && ENABLE_FEATURE_B
+    default n
+    help
+        This advanced mode requires both Feature A and Feature B to be enabled.
+
+config ADVANCED_LEVEL
+    int "Advanced Level"
+    depends on ADVANCED_MODE
+    range 1 10
+    default 5
+    help
+        Set the advanced level. Only available in advanced mode.
+
+config DEBUG_MODE
+    bool "Debug Mode"
+    depends on ENABLE_FEATURE_A || ENABLE_FEATURE_B
+    default n
+    help
+        Enable debug mode. Available when either Feature A or Feature B is enabled.

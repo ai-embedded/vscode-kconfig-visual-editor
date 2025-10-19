@@ -1,0 +1,59 @@
+#
+# Source Functionality Test
+#
+# CONFIG_TEST_SOURCE_BASIC is not set
+CONFIG_SOURCED_CONFIG_BASIC=y
+
+#
+# Menu included via source
+#
+CONFIG_SOURCED_SUBMENU_CONFIG=y
+# CONFIG_OPTION_F is not set
+CONFIG_SOURCED_STRING_CONFIG="source_test"
+# end of Menu included via source
+
+# CONFIG_TEST_RSOURCE_BASIC is not set
+# CONFIG_RSOURCED_CONFIG is not set
+CONFIG_RSOURCE_OPTION_A=y
+# CONFIG_RSOURCE_OPTION_B is not set
+CONFIG_RSOURCE_INT_CONFIG=42
+# CONFIG_TEST_OSOURCE_BASIC is not set
+CONFIG_OSOURCED_EXISTING_CONFIG=y
+CONFIG_OSOURCE_HEX_CONFIG=0x1000
+# CONFIG_TEST_ORSOURCE_BASIC is not set
+# CONFIG_ORSOURCED_CONFIG is not set
+# end of Source Functionality Test
+
+#
+# Glob Pattern Test
+#
+# CONFIG_TEST_GLOB_PATTERNS is not set
+CONFIG_GLOB_FEATURE1_CONFIG=y
+# CONFIG_GLOB_FEATURE2_CONFIG is not set
+CONFIG_OPTIONAL_GLOB_CONFIG=y
+# CONFIG_RELATIVE_GLOB_CONFIG is not set
+# end of Glob Pattern Test
+
+#
+# Nested Source Test
+#
+# CONFIG_TEST_NESTED_SOURCE is not set
+CONFIG_NESTED_LEVEL1_CONFIG=y
+# CONFIG_NESTED_LEVEL2_CONFIG is not set
+
+#
+# Nested level 1 menu
+#
+CONFIG_NESTED_L1_MENU_CONFIG="level1"
+# end of Nested level 1 menu
+# end of Nested Source Test
+
+#
+# Conditional Source Test
+#
+
+#
+# Conditionally included menu
+#
+# end of Conditionally included menu
+# end of Conditional Source Test

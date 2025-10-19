@@ -1,0 +1,7 @@
+# Test file loaded via $(ARCH_DIR)/arch-specific.kconfig
+
+config ARCH_SPECIFIC_TUNING
+    bool "Architecture-specific optimization"
+    default n
+    help
+      Used to test osource parsing with a variable-based path.

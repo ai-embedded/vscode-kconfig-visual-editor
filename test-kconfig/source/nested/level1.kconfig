@@ -1,0 +1,24 @@
+# Nested source test - Level 1
+# This file includes another file, forming nested structure
+
+config NESTED_LEVEL1_CONFIG
+    bool "Nested level 1 config"
+    default y
+    help
+      First level nested configuration, this file itself includes other files.
+
+# Level 1 file includes level 2 file
+rsource "level2.kconfig"
+
+menu "Nested level 1 menu"
+
+    config NESTED_L1_MENU_CONFIG
+        string "Level 1 menu config"
+        default "level1"
+        help
+          Configuration item in nested level 1 menu.
+
+    # Also include file in menu
+    osource "level2_optional.kconfig"
+
+endmenu

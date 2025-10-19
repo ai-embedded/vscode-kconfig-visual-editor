@@ -1,0 +1,8 @@
+# Nested source test - Level 2 optional file
+# This file is optionally included in the menu of level 1 file
+
+config NESTED_OPTIONAL_CONFIG
+    hex "Nested optional config"
+    default 0x2000
+    help
+      Nested optional configuration, included by osource in level 1 menu.

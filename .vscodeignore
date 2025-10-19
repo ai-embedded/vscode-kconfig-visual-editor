@@ -1,0 +1,107 @@
+# 开发文件
+.vscode/**
+.vscode-test/**
+src/**
+.gitignore
+.yarnrc
+vsc-extension-quickstart.md
+**/tsconfig.json
+**/.eslintrc.json
+**/.eslintrc.js
+**/*.map
+**/*.ts
+tsconfig.json
+webpack.config.js
+build.sh
+
+# 测试文件
+test/**
+**/test/**
+**/*.test.*
+**/*.spec.*
+out/test/**
+
+# 文档文件
+*.md
+!README.md
+docs/**
+DEBUG_*.md
+SSH_DEBUG_STEPS.md
+ESP_IDF_FEATURES.md
+11.md
+resources/icons/install-complete.svg
+
+# 构建临时文件
+out/**
+*.vsix
+*.log
+.DS_Store
+Thumbs.db
+
+# 开发工具配置
+.eslintrc.*
+.prettierrc.*
+.editorconfig
+.nyc_output
+coverage/
+*.tsbuildinfo
+
+# 示例和测试文件
+test_*.txt
+Kconfig
+examples/
+sample/
+*.txt
+!README.txt
+
+# CI/CD 文件
+.github/
+.gitlab-ci.yml
+.travis.yml
+azure-pipelines.yml
+.circleci/
+
+# 包管理文件 (但保留 package-lock.json 用于版本锁定)
+yarn.lock
+pnpm-lock.yaml
+
+# 不要打包 node_modules，webpack 会处理依赖
+node_modules/**
+
+# IDE 文件
+.idea/
+*.swp
+*.swo
+*~
+.claude
+.kiro
+
+# 测试文件
+test-kconfig/
+
+# 保留必要的编译输出
+!dist/**/*.js
+
+test
+third_party
+
+rt-thread
+
+# 开发和测试文件（不应打包）
+generateReport.js
+AccurateLayeredTester.js
+kconfiglib_indent_results.json
+test-kconfig-indent.kconfig
+*.patch
+tsconfig.main.json
+.watch.pid
+bundle-*.html
+bundle-*.json
+dist/views/bundle-*.html
+dist/views/bundle-*.json
+
+# Python 开发脚本
+*.py
+
+# ESLint 配置文件（运行时不需要）
+.eslintignore

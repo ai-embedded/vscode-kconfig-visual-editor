@@ -1,0 +1,20 @@
+# Conditional source test file
+# This file is included via rsource in an if conditional block
+
+config CONDITIONAL_SOURCED_CONFIG
+    bool "Conditionally included config"
+    default y
+    help
+      This is a configuration item included via rsource in a conditional block.
+      Only included when TEST_SOURCE_BASIC is true.
+
+menu "Conditionally included menu"
+    depends on TEST_SOURCE_BASIC
+
+    config CONDITIONAL_MENU_CONFIG
+        tristate "Conditional menu config"
+        default m
+        help
+          Configuration item in conditionally included menu.
+
+endmenu

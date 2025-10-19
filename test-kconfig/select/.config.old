@@ -1,0 +1,10 @@
+#
+# Main Settings
+#
+CONFIG_OPTION_A=y
+CONFIG_OPTION_B=y
+CONFIG_OPTION_C=y
+CONFIG_OPTION_D=y
+CONFIG_OPTION_E=y
+CONFIG_OPTION_F=y
+# end of Main Settings

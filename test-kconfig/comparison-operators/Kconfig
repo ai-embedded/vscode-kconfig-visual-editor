@@ -1,0 +1,330 @@
+# Comparison operator testing
+# Test =, !=, <, >, <=, >= operators and their combinations with logical operators
+
+mainmenu "Comparison operator testing"
+
+# ==================== Basic configuration ====================
+config OPTIMIZATION_LEVEL
+    int "Optimization level (0-3)"
+    range 0 3
+    default 0
+    help
+      Compiler optimization level.
+
+config THREAD_PRIORITY
+    int "Thread priority (0-255)"
+    range 0 255
+    default 100
+    help
+      Thread priority, the smaller the value, the higher the priority.
+
+config MEMORY_SIZE
+    hex "Memory size"
+    default 0x10000
+    help
+      System memory size (bytes).
+
+config CPU_FREQUENCY
+    int "CPU frequency (MHz)"
+    range 1 1000
+    default 100
+    help
+      CPU clock speed (MHz).
+
+config FEATURE_ENABLED
+    bool "enable a feature"
+    default n
+
+# ==================== Test 1: Equality operator = ====================
+menu "Test 1: Equality operator (=)"
+
+config TEST_EQ_OPT0
+    bool "Optimization level equals 0"
+    depends on OPTIMIZATION_LEVEL = 0
+    default y
+    help
+      Only visible when optimization level is 0.
+
+config TEST_EQ_OPT3
+    bool "Optimization level equals 3"
+    depends on OPTIMIZATION_LEVEL = 3
+    default y
+    help
+      Only visible when optimization level is 3.
+
+config TEST_EQ_PRIORITY
+    bool "Priority equals 100"
+    depends on THREAD_PRIORITY = 100
+    default y
+    help
+      Only visible when thread priority is 100.
+
+config TEST_EQ_HEX
+    bool "Memory size equals 0x10000"
+    depends on MEMORY_SIZE = 0x10000
+    default y
+    help
+      Tests for equality comparison of hexadecimal values.
+
+endmenu
+
+# ==================== Test 2: Not equal to operator != ====================
+menu "Test 2: Inequality operator (!=)"
+
+config TEST_NEQ_OPT0
+    bool "Optimization level is not equal to 0"
+    depends on OPTIMIZATION_LEVEL != 0
+    default y
+    help
+      Visible when optimization level is non-zero.
+
+config TEST_NEQ_PRIORITY
+    bool "Priority is not equal to 100"
+    depends on THREAD_PRIORITY != 100
+    default y
+    help
+      Visible when priority is not the default value.
+
+endmenu
+
+# ==================== Test 3: Less than operator < ====================
+menu "Test 3: Less than operator (<)"
+
+config TEST_LT_OPT
+    bool "Optimization level less than 2"
+    depends on OPTIMIZATION_LEVEL < 2
+    default y
+    help
+      Visible when optimization level is 0 or 1.
+
+config TEST_LT_PRIORITY
+    bool "High priority tasks (priority < 50)"
+    depends on THREAD_PRIORITY < 50
+    default y
+    help
+      High priority tasks (the smaller the value, the higher the priority).
+
+config TEST_LT_FREQ
+    bool "Low frequency CPU (< 100MHz)"
+    depends on CPU_FREQUENCY < 100
+    default y
+    help
+      CPU frequency is less than 100MHz.
+
+endmenu
+
+# ==================== Test 4: Greater than operator > ====================
+menu "Test 4: Greater than operator (>)"
+
+config TEST_GT_OPT
+    bool "Optimization level greater than 1"
+    depends on OPTIMIZATION_LEVEL > 1
+    default y
+    help
+      Visible at optimization level 2 or 3.
+
+config TEST_GT_PRIORITY
+    bool "Low priority tasks (priority > 200)"
+    depends on THREAD_PRIORITY > 200
+    default y
+    help
+      Low priority background tasks.
+
+config TEST_GT_FREQ
+    bool "High frequency CPU (> 500MHz)"
+    depends on CPU_FREQUENCY > 500
+    default y
+    help
+      High performance CPU configuration.
+
+endmenu
+
+# ==================== Test 5: Less than or equal to operator <= ====================
+menu "Test 5: Less than or equal to operator (<=)"
+
+config TEST_LE_OPT
+    bool "Optimization level less than or equal to 1"
+    depends on OPTIMIZATION_LEVEL <= 1
+    default y
+    help
+      Optimization level is 0 or 1.
+
+config TEST_LE_PRIORITY
+    bool "Priority <= 100"
+    depends on THREAD_PRIORITY <= 100
+    default y
+    help
+      Medium to high priority tasks.
+
+endmenu
+
+# ==================== Test 6: Greater than or equal to operator >= ====================
+menu "Test 6: Greater than or equal to operator (>=)"
+
+config TEST_GE_OPT
+    bool "Optimization level greater than or equal to 2"
+    depends on OPTIMIZATION_LEVEL >= 2
+    default y
+    help
+      Optimization level 2 or 3.
+
+config TEST_GE_PRIORITY
+    bool "Priority >= 100"
+    depends on THREAD_PRIORITY >= 100
+    default y
+    help
+      Low to medium priority tasks.
+
+config TEST_GE_FREQ
+    bool "CPU >= 100MHz"
+    depends on CPU_FREQUENCY >= 100
+    default y
+    help
+      Standard or high frequency CPU.
+
+endmenu
+
+# ==================== Test 7: Combination of comparison operators and logical operators ====================
+menu "Test 7: Combining comparison operators with logical operators"
+
+config TEST_COMP_AND_1
+    bool "Optimization level > 0 and < 3"
+    depends on OPTIMIZATION_LEVEL > 0 && OPTIMIZATION_LEVEL < 3
+    default y
+    help
+      Optimization level 1 or 2.
+
+config TEST_COMP_AND_2
+    bool "High priority and high frequency CPU"
+    depends on THREAD_PRIORITY < 50 && CPU_FREQUENCY > 500
+    default y
+    help
+      High performance configuration.
+
+config TEST_COMP_OR_1
+    bool "Optimization level = 0 or = 3"
+    depends on OPTIMIZATION_LEVEL = 0 || OPTIMIZATION_LEVEL = 3
+    default y
+    help
+      No optimization or maximum optimization.
+
+config TEST_COMP_OR_2
+    bool "Extreme priority (< 10 or > 240)"
+    depends on THREAD_PRIORITY < 10 || THREAD_PRIORITY > 240
+    default y
+    help
+      Very high or very low priority.
+
+config TEST_COMP_NOT
+    bool "Optimization level is not equal to 2"
+    depends on !(OPTIMIZATION_LEVEL = 2)
+    default y
+    help
+      Test negative comparison expressions.
+
+endmenu
+
+# ==================== Test 8: Complex comparison expressions ====================
+menu "Test 8: Complex combinations of comparison expressions"
+
+config TEST_COMPLEX_RANGE
+    bool "Optimization level is in the range [1, 2]"
+    depends on OPTIMIZATION_LEVEL >= 1 && OPTIMIZATION_LEVEL <= 2
+    default y
+    help
+      Optimization level 1 or 2.
+
+config TEST_COMPLEX_OUT_OF_RANGE
+    bool "Priority is outside normal range"
+    depends on THREAD_PRIORITY < 10 || THREAD_PRIORITY > 240
+    default y
+    help
+      Exception priority configuration.
+
+config TEST_COMPLEX_MULTI_COND
+    bool "Complex and multiple conditions"
+    depends on OPTIMIZATION_LEVEL > 1 && CPU_FREQUENCY >= 100 && THREAD_PRIORITY <= 150
+    default y
+    help
+      Optimization level > 1, CPU >= 100MHz, priority <= 150.
+
+config TEST_COMPLEX_NESTED
+    bool "Nested comparison conditions"
+    depends on (OPTIMIZATION_LEVEL = 0 || OPTIMIZATION_LEVEL = 1) && CPU_FREQUENCY > 50
+    default y
+    help
+      (Optimization level 0 or 1) and CPU > 50MHz.
+
+config TEST_COMPLEX_BOOL_AND_COMP
+    bool "Boolean and comparison combinations"
+    depends on FEATURE_ENABLED && OPTIMIZATION_LEVEL > 0
+    default y
+    help
+      Features enabled and optimized.
+
+config TEST_COMPLEX_NOT_AND_COMP
+    bool "Negation and comparison combination"
+    depends on !FEATURE_ENABLED && OPTIMIZATION_LEVEL >= 2
+    default y
+    help
+      Feature is not enabled but optimization level is high.
+
+endmenu
+
+# ==================== Test 9: Comparison operators in different contexts ====================
+menu "Test 9: Comparison operators in different contexts"
+
+# Using comparison in default if
+config AUTO_ENABLE_HIGH_PERF
+    bool "Automatically enable high performance mode"
+    default y if CPU_FREQUENCY > 500
+    default n
+    help
+      Automatically enabled when CPU frequency > 500MHz.
+
+# Using comparisons in if blocks
+if OPTIMIZATION_LEVEL >= 2
+
+config HIGH_OPT_FEATURE
+    bool "Highly optimized features"
+    default y
+    help
+      Only available at high optimization levels.
+
+endif
+
+# Using comparison in visible if
+menu "High performance options"
+    visible if CPU_FREQUENCY > 200
+
+config TURBO_MODE
+    bool "Turbo mode"
+    default n
+    help
+      Only visible on high frequency CPUs.
+
+endmenu
+
+endmenu
+
+# ==================== Test 10: Boundary Condition Test ====================
+menu "Test 10: Boundary Condition Test"
+
+config TEST_BOUNDARY_MIN
+    bool "Optimization level minimum (= 0)"
+    depends on OPTIMIZATION_LEVEL = 0
+    default y
+
+config TEST_BOUNDARY_MAX
+    bool "Maximum optimization level (= 3)"
+    depends on OPTIMIZATION_LEVEL = 3
+    default y
+
+config TEST_BOUNDARY_RANGE
+    bool "The priority is within a reasonable range [50, 200]"
+    depends on THREAD_PRIORITY >= 50 && THREAD_PRIORITY <= 200
+    default y
+    help
+      Test range boundaries.
+
+endmenu

@@ -1,0 +1,3 @@
+# inside-choice.kconfig - included by source inside choice block
+config CHOICE_OPTION2
+    bool "Option 2 from source"

@@ -1,0 +1,35 @@
+# Module B configuration
+menu "Module B"
+
+config MODULE_B_ENABLE
+    tristate "Enable module B"
+    depends on MODULES_SUPPORT
+    default m
+    help
+      Enable module B functionality (supports compilation into modules).
+
+config MODULE_B_FEATURE_1
+    bool "Module B Function 1"
+    depends on MODULE_B_ENABLE
+    select FEATURE_B
+    default y if MODULE_B_ENABLE = y
+    help
+      Function 1 of module B, mandatory dependency on FEATURE_B.
+
+config MODULE_B_OPTIMIZATION
+    bool "Module B Optimization"
+    depends on MODULE_B_ENABLE
+    depends on OPTIMIZATION_LEVEL >= 2
+    default n
+    help
+      To enable the optimization function of module B, optimization level >= 2 is required.
+
+config MODULE_B_TIMEOUT
+    int "Module B timeout"
+    depends on MODULE_B_ENABLE
+    range 100 10000
+    default 1000
+    help
+      Configure module B’s timeout in milliseconds.
+
+endmenu

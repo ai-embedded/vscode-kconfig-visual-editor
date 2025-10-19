@@ -1,0 +1,11 @@
+mainmenu "Menu Kconfig Test"
+
+menu "Main Settings"
+    config TEST_FEATURE
+        bool "Enable Test Feature"
+        default y
+        help
+          This is a test feature that can be enabled or disabled.
+          When enabled, it provides additional functionality.
+
+endmenu

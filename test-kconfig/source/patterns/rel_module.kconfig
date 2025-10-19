@@ -1,0 +1,8 @@
+# Relative path Glob pattern test file
+# This file will be matched by rel_*.kconfig pattern (rsource)
+
+config RELATIVE_GLOB_CONFIG
+    bool "Relative path Glob config"
+    default n
+    help
+      Config matched by relative path glob pattern rel_*.kconfig.

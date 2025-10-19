@@ -1,0 +1,33 @@
+# Module A configuration
+menu "Module A"
+
+config MODULE_A_ENABLE
+    bool "Enable module A"
+    default n
+    help
+      Enable module A functionality.
+
+config MODULE_A_FEATURE_1
+    bool "Module A Function 1"
+    depends on MODULE_A_ENABLE
+    default n
+    help
+      Module A Function 1.
+
+config MODULE_A_FEATURE_2
+    bool "Module A Function 2"
+    depends on MODULE_A_ENABLE
+    imply FEATURE_A
+    default n
+    help
+      Feature 2 of module A, it is recommended to enable FEATURE_A.
+
+config MODULE_A_BUFFER_SIZE
+    int "Module A buffer size"
+    depends on MODULE_A_ENABLE
+    range 128 4096
+    default 1024
+    help
+      Configure module A's buffer size in bytes.
+
+endmenu

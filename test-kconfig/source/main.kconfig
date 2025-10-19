@@ -1,0 +1,40 @@
+# Comprehensive source test - main file
+mainmenu "Complete Source Test"
+
+# Test 1: Top-level source
+config TOP_LEVEL_CONFIG
+    bool "Top Level Config"
+    help
+      Config before source
+
+source "basic.kconfig"
+
+# Test 2: source inside config block
+config CONFIG_WITH_SOURCE
+    bool "Config with internal source"
+    help
+      This config has source inside
+    source "inside-config.kconfig"
+
+# Test 3: source inside menu block
+menu "Menu with source"
+    config MENU_CONFIG
+        bool "Config in menu"
+
+    source "inside-menu.kconfig"
+endmenu
+
+# Test 4: source inside if block
+if TOP_LEVEL_CONFIG
+    source "inside-if.kconfig"
+endif
+
+# Test 5: source inside choice block
+choice TEST_CHOICE
+    prompt "Test Choice"
+
+    config CHOICE_OPTION1
+        bool "Option 1"
+
+    source "inside-choice.kconfig"
+endchoice

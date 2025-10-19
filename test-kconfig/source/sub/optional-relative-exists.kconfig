@@ -1,0 +1,19 @@
+# orsource optional relative path file test (this file exists)
+# This file is optionally included via orsource keyword with relative path
+
+config ORSOURCED_CONFIG
+    bool "orsource included config"
+    default n
+    help
+      This is a configuration item included via orsource keyword with relative path.
+      This file exists, so the config will be included normally.
+
+if ORSOURCED_CONFIG
+
+    config ORSOURCE_DEPENDENT_CONFIG
+        string "orsource dependent config"
+        default "orsource_value"
+        help
+          String configuration item dependent on orsource config.
+
+endif

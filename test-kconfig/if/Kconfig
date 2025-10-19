@@ -1,0 +1,236 @@
+mainmenu "Menu Folding Verification - 100% Compatible with Kconfiglib Test"
+
+# Top-level config for testing
+config TOP_LEVEL_CONFIG
+    bool "Top Level Config"
+    default y
+    help
+      This is a top-level configuration item, not inside any menu.
+
+# 🔥 Test 1: Basic Menu Folding
+menu "Basic Menu Test"
+
+config BASIC_BOOL
+    bool "Basic Boolean Config"
+    default y
+    help
+      Boolean configuration item in basic menu.
+
+config BASIC_INT
+    int "Basic Integer Config"
+    range 1 100
+    default 10
+    help
+      Integer configuration item in basic menu.
+
+config BASIC_STRING
+    string "Basic String Config"
+    default "test_string"
+    help
+      String configuration item in basic menu.
+
+endmenu
+
+# 🔥 Test 2: Nested Menu Folding (2 levels)
+menu "Nested Menu Test"
+
+config NESTED_ENABLE
+    bool "Enable Nested Features"
+    default n
+    help
+      Controls the visibility of nested menu.
+
+menu "Second Level Nested Menu"
+    depends on NESTED_ENABLE
+
+config NESTED_ITEM1
+    bool "Nested Config 1"
+    default y
+
+config NESTED_ITEM2
+    hex "Nested Config 2"
+    default 0x100
+    range 0x10 0x1000
+
+endmenu
+
+config NESTED_PARENT_ITEM
+    string "Nested Parent Item"
+    default "parent"
+
+endmenu
+
+# 🔥 Test 3: Deep Nested Menu (3 levels)
+menu "Deep Nesting Test"
+
+config DEEP_ENABLE
+    bool "Enable Deep Nesting"
+    default n
+
+menu "Second Level Menu"
+    depends on DEEP_ENABLE
+
+config LEVEL2_CONFIG
+    bool "Level 2 Config"
+    default y
+
+menu "Third Level Menu"
+
+config LEVEL3_CONFIG
+    tristate "Level 3 Config"
+    default m
+    help
+      This is a third-level nested configuration item.
+
+config LEVEL3_INT
+    int "Level 3 Integer"
+    default 42
+    range 1 100
+
+endmenu
+
+config LEVEL2_AFTER_MENU
+    string "Config After Second Level Menu"
+    default "after_menu"
+
+endmenu
+
+endmenu
+
+# 🔥 Test 4: Conditional Menu
+menu "Conditional Menu Test"
+    depends on TOP_LEVEL_CONFIG
+
+config CONDITIONAL_ITEM
+    bool "Conditional Config Item"
+    default y
+    help
+      Only displayed when TOP_LEVEL_CONFIG is enabled.
+
+endmenu
+
+# 🔥 Test 5: Choice Group Test
+choice COMPRESSION_CHOICE
+    prompt "Select Compression Algorithm"
+    default GZIP
+    help
+      Choose the compression algorithm to use.
+
+config GZIP
+    bool "Gzip Compression"
+
+config BZIP2
+    bool "Bzip2 Compression"
+
+config LZ4
+    bool "LZ4 Compression"
+
+endchoice
+
+# 🔥 Test 6: Choice Inside Menu
+menu "Menu with Choice"
+
+config MENU_CHOICE_ENABLE
+    bool "Enable Menu Choice"
+    default y
+
+choice MENU_CHOICE
+    prompt "Choice Inside Menu"
+    depends on MENU_CHOICE_ENABLE
+    default OPTION_A
+
+config OPTION_A
+    bool "Option A"
+
+config OPTION_B
+    bool "Option B"
+
+config OPTION_C
+    bool "Option C"
+
+endchoice
+
+config AFTER_CHOICE
+    string "Config After Choice"
+    default "after_choice"
+
+endmenu
+
+# 🔥 Test 7: Empty Menu
+menu "Empty Menu Test"
+endmenu
+
+# 🔥 Test 8: Single Item Menu
+menu "Single Item Menu"
+
+config SINGLE_ITEM
+    bool "Single Config Item"
+    default y
+    help
+      This menu contains only one configuration item.
+
+endmenu
+
+# 🔥 Test 9: Complex Conditional Menu
+menu "Complex Conditional Menu"
+
+config COMPLEX_ENABLE
+    bool "Enable Complex Features"
+    default n
+
+if COMPLEX_ENABLE
+
+config COMPLEX_ITEM1
+    bool "Complex Item 1"
+    default y
+
+config COMPLEX_ITEM2
+    int "Complex Item 2"
+    default 20
+    range 10 50
+
+menu "Menu Inside Condition"
+
+config INNER_CONDITIONAL
+    tristate "Inner Conditional Config"
+    default m
+
+endmenu
+
+endif
+
+endmenu
+
+# 🔥 Test 10: Menuconfig Type Test
+menuconfig MENUCONFIG_TEST
+    bool "Menuconfig Test"
+    default n
+    help
+      This is a menuconfig type configuration, should be expandable and collapsible.
+
+if MENUCONFIG_TEST
+
+config MENUCONFIG_ITEM1
+    bool "Menuconfig Sub-item 1"
+    default y
+
+config MENUCONFIG_ITEM2
+    string "Menuconfig Sub-item 2"
+    default "menuconfig_value"
+
+menu "Menu Inside Menuconfig"
+
+config NESTED_IN_MENUCONFIG
+    hex "Nested in Menuconfig"
+    default 0x200
+
+endmenu
+
+endif
+
+# 🔥 Test 11: Final Regular Config
+config FINAL_CONFIG
+    tristate "Final Config"
+    default m
+    help
+      This is the last configuration item, used to test overall structure.

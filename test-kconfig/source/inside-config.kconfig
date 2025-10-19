@@ -1,0 +1,5 @@
+# inside-config.kconfig - included by source inside config block
+config INSIDE_CONFIG
+    bool "Config from inside config block"
+    help
+      Sourced from within a config block

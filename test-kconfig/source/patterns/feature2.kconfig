@@ -1,0 +1,8 @@
+# Glob pattern test file 2
+# This file will be matched by *.kconfig pattern
+
+config GLOB_FEATURE2_CONFIG
+    bool "Glob feature 2 config"
+    default n
+    help
+      Feature 2 config matched by glob pattern *.kconfig.

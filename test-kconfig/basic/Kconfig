@@ -1,0 +1,83 @@
+# Another test Kconfig file
+mainmenu "Test Configuration"
+
+config SECONDARY_FEATURE
+    bool "Enable Secondary Feature"
+    default n
+    help
+      This is a secondary test feature.
+
+menu "Network Settings"
+    config NETWORK_ENABLED
+        bool "Enable Network Support"
+        default y
+        help
+          Enable network functionality.
+
+    config NETWORK_PORT
+        int "Network Port"
+        depends on NETWORK_ENABLED
+        range 1 65535
+        default 8080
+        help
+          Port number for network connections.
+
+    config NETWORK_PROTOCOL
+        string "Network Protocol"
+        depends on NETWORK_ENABLED
+        default "TCP"
+        help
+          Protocol to use for network connections.
+
+    choice NETWORK_MODE
+        prompt "Network Mode"
+        depends on NETWORK_ENABLED
+        default NETWORK_MODE_CLIENT
+
+        config NETWORK_MODE_CLIENT
+            bool "Client Mode"
+            help
+              Run in client mode.
+
+        config NETWORK_MODE_SERVER
+            bool "Server Mode"
+            help
+              Run in server mode.
+
+        config NETWORK_MODE_BOTH
+            bool "Both Client and Server"
+            help
+              Support both client and server modes.
+    endchoice
+endmenu
+
+menu "Security Settings"
+    config SECURITY_ENABLED
+        bool "Enable Security"
+        default y
+        help
+          Enable security features.
+
+    if SECURITY_ENABLED
+        config SECURITY_LEVEL
+            int "Security Level"
+            range 1 10
+            default 5
+            help
+              Security level from 1 (low) to 10 (high).
+
+        config SECURITY_ENCRYPTION
+            bool "Enable Encryption"
+            default y
+            help
+              Enable data encryption.
+
+        config SECURITY_KEY_SIZE
+            int "Key Size"
+            depends on SECURITY_ENCRYPTION
+            range 128 4096
+            default 256
+            help
+              Encryption key size in bits.
+    endif
+endmenu

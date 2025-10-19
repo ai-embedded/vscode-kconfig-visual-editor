@@ -1,0 +1,5 @@
+# basic.kconfig - included by top-level source
+config BASIC_CONFIG
+    bool "Basic Config from source"
+    help
+      This is from basic.kconfig

@@ -1,0 +1,56 @@
+mainmenu "Simple if Condition Test"
+
+# Main switch
+config ENABLE_FEATURE
+    bool "Enable Feature"
+    default n
+    help
+      This is a main switch to control the visibility of features below.
+
+# Simple if block test
+if ENABLE_FEATURE
+
+config FEATURE_ITEM1
+    bool "Feature Item 1"
+    default y
+    help
+      This item is only displayed when the feature is enabled.
+
+config FEATURE_ITEM2
+    string "Feature Item 2"
+    default "test"
+    help
+      This is a string configuration item, dependent on the main switch.
+
+config FEATURE_ITEM3
+    int "Feature Item 3"
+    default 10
+    range 1 100
+    help
+      This is an integer configuration item, dependent on the main switch.
+
+endif
+
+# Independent config item (always visible)
+config ALWAYS_VISIBLE
+    bool "Always Visible Item"
+    default y
+    help
+      This configuration item is always visible, not dependent on any condition.
+
+# Second if block test
+config ANOTHER_SWITCH
+    bool "Another Switch"
+    default n
+    help
+      A second test switch.
+
+if ANOTHER_SWITCH
+
+config NESTED_ITEM
+    hex "Nested Item"
+    default 0x100
+    help
+      Configuration item dependent on the second switch.
+
+endif

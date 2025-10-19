@@ -1,0 +1,43 @@
+menu "Main Settings"
+    config OPTION_A
+        bool "Option A"
+        default n
+        help
+            This is option A
+
+    config OPTION_B
+        bool "Option B"
+        select OPTION_A
+        default n
+        help
+            This is option B, it will automatically select option A
+
+    config OPTION_C
+        bool "Option C"
+        select OPTION_A
+        select OPTION_D
+        default n
+        help
+            This is option C, it will select both A and D
+
+    config OPTION_D
+        bool "Option D"
+        default n
+        help
+            This is option D, can be selected by option C
+
+    config OPTION_E
+        bool "Option E"
+        depends on OPTION_A
+        select OPTION_F
+        default n
+        help
+            This is option E, it depends on A and selects F
+
+    config OPTION_F
+        bool "Option F"
+        default n
+        help
+            This is option F, can be selected by option E
+
+endmenu
