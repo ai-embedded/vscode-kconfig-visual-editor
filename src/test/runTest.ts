@@ -1,11 +1,13 @@
 import { runRtThreadPkgsDirTests } from "./rtthreadPkgsDir.test";
 import { runRtThreadPkgsOverrideTests } from "./rtthreadPkgsOverride.test";
 import { runSourceDuplicateSymbolTests } from "./sourceDuplicateSymbol.test";
+import { runChoiceSelectionTests } from "./choiceSelection.test";
 
 async function main(): Promise<void> {
     await runRtThreadPkgsDirTests();
     await runRtThreadPkgsOverrideTests();
     await runSourceDuplicateSymbolTests();
+    await runChoiceSelectionTests();
 }
 
 main().catch((error) => {

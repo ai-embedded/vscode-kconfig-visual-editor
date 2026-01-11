@@ -177,6 +177,8 @@ This extension contributes the following settings:
     - Added table-style Kconfig visual editor
     - Support for RT-Thread environment variable PKGS_DIR
     - Fixed some Kconfig syntax display errors
+3. 0.2.1:
+    - Fix the error of saving the choice
 
 ## Testing & Validation
 

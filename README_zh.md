@@ -179,6 +179,8 @@ VSCode Kconfig 可视化编辑器，提供语法高亮、自动补全、验证�
     - 新增表格式 Kconfig 可视化编辑器
     - 支持 RT-Thread 环境变量 PKGS_DIR
     - 优化部分 Kconfig 语法显示错误
+3. 0.2.1:
+   - 修复 choice 保存错误
 
 ## 测试与验证
 

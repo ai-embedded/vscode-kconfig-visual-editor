@@ -580,8 +580,12 @@ export class VisibilityManager {
                 menu.autoSelectedPreviousWasDefault = undefined;
             }
 
+            if (menu.type === menuType.choice) {
+                this.applyChoiceSelection(menu, newValue);
+            }
+
             this.syncSymbolState(menu);
-            
+
             // Process select statements (must be done before updating readonly states)
             if (menu.type === menuType.bool) {
                 const isEnabled = newValue === true;
@@ -635,6 +639,51 @@ export class VisibilityManager {
             Logger.info(`[FDT_DEBUG] After updateValue(): RT_USING_FDT=${maybeFdt ? maybeFdt.value : 'N/A'}, RT_USING_FDTLIB=${maybeFdtLib ? maybeFdtLib.value : 'N/A'}`);
         }
         return this.allMenus;
+    }
+
+    private applyChoiceSelection(menu: Menu, newValue: any): void {
+        if (!menu.children || menu.children.length === 0) {
+            return;
+        }
+        if (typeof newValue !== "string" || newValue.trim().length === 0) {
+            return;
+        }
+
+        const selectedName = newValue.trim();
+        const selectedChild = menu.children.find(child => child.name === selectedName);
+        if (!selectedChild) {
+            return;
+        }
+
+        menu.value = selectedName;
+        menu.isDefaultValue = false;
+
+        for (const child of menu.children) {
+            if (child.type !== menuType.bool && child.type !== menuType.tristate) {
+                continue;
+            }
+            const isSelected = child.name === selectedName;
+            const nextValue = isSelected;
+
+            if (child.name) {
+                const prevValue = child.value;
+                if (prevValue !== nextValue || this.configValues[child.name] !== nextValue) {
+                    child.value = nextValue;
+                    this.configValues[child.name] = nextValue;
+                    this.evaluator.setValue(child.name, nextValue);
+                }
+            }
+
+            child.isDefaultValue = false;
+            child.autoSelectedValue = undefined;
+            child.autoSelectedPreviousValue = undefined;
+            child.autoSelectedPreviousWasDefault = undefined;
+            this.syncSymbolState(child);
+
+            if (child.type === menuType.bool) {
+                this.processSelectStatements(child, isSelected);
+            }
+        }
     }
 
     /**
