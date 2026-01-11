@@ -14,7 +14,7 @@
 
 <script setup lang="ts">
 import { computed } from 'vue';
-import { useMenuconfigStore } from "../store";
+import { useMenuconfigStore } from "../../../store";
 
 interface TreeItem {
   id: string;

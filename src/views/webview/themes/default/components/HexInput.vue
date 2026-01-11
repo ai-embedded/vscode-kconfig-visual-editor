@@ -14,9 +14,9 @@
 
 <script setup lang="ts">
 import { ref, watch, computed } from 'vue';
-import { Menu } from "../../../menuconfig/Menu";
+import { Menu } from "../../../../../menuconfig/Menu";
 import { IconQuestion, IconLock } from "@iconify-prerendered/vue-codicon";
-import { useMenuconfigStore } from "../store";
+import { useMenuconfigStore } from "../../../store";
 import { storeToRefs } from "pinia";
 
 interface Props {
@@ -25,13 +25,13 @@ interface Props {
 
 const props = defineProps<Props>();
 const emit = defineEmits<{
-  change: [value: number];
+  change: [value: string];
 }>();
 
 const store = useMenuconfigStore();
 const { closeAllHelpTimestamp } = storeToRefs(store);
 
-const localValue = ref(props.config.value || 0);
+const localValue = ref(props.config.value || '0x0');
 const isHelpVisible = ref(false);
 
 // 计算只读状态
@@ -49,45 +49,21 @@ function handleChange() {
     return;
   }
   
-  const numValue = parseInt(localValue.value?.toString() || '0', 10);
-  if (!isNaN(numValue)) {
-    // 验证范围
-    const min = props.config.range && props.config.range.length > 0 ? props.config.range[0] : -Infinity;
-    const max = props.config.range && props.config.range.length > 1 ? props.config.range[1] : Infinity;
-    
-    if (numValue < min) {
-      localValue.value = min;
-      emit('change', min);
-    } else if (numValue > max) {
-      localValue.value = max;
-      emit('change', max);
-    } else {
-      emit('change', numValue);
-    }
-  }
-}
-
-function increment() {
-  if (isReadonly.value) {
-    return;
+  let value = localValue.value;
+  
+  // Ensure the value starts with 0x
+  if (!value.startsWith('0x') && !value.startsWith('0X')) {
+    value = '0x' + value;
   }
   
-  const max = props.config.range && props.config.range.length > 1 ? props.config.range[1] : Infinity;
-  if (localValue.value < max) {
-    localValue.value++;
-    handleChange();
-  }
-}
-
-function decrement() {
-  if (isReadonly.value) {
-    return;
-  }
-  
-  const min = props.config.range && props.config.range.length > 0 ? props.config.range[0] : -Infinity;
-  if (localValue.value > min) {
-    localValue.value--;
-    handleChange();
+  // Validate hex format
+  const hexPattern = /^0x[0-9a-fA-F]+$/;
+  if (hexPattern.test(value)) {
+    localValue.value = value;
+    emit('change', value);
+  } else {
+    // Reset to previous valid value
+    localValue.value = props.config.value || '0x0';
   }
 }
 
@@ -96,7 +72,7 @@ function toggleHelp() {
 }
 
 watch(() => props.config.value, (newValue) => {
-  localValue.value = newValue || 0;
+  localValue.value = newValue || '0x0';
 });
 
 // 监听全局关闭所有帮助信息
@@ -108,49 +84,35 @@ watch(closeAllHelpTimestamp, () => {
 </script>
 
 <template>
-  <div class="number-input-container" :class="{ readonly: isReadonly }">
+  <div class="hex-input-container" :class="{ readonly: isReadonly }">
     <div class="input-group">
-      <!-- 占位符，确保与 checkbox 宽度对齐 -->
-      <div class="icon-placeholder"></div>
-      <label :for="props.config.id" class="input-label">
-        {{ props.config.title }}
-        <div v-if="isReadonly" class="readonly-icon" :title="readonlyReason">
-          <IconLock />
-        </div>
-        <div class="info-icon" @click="toggleHelp">
-          <IconQuestion />
-        </div>
-      </label>
-      <div class="number-input-wrapper">
-        <button
-          type="button"
-          @click="decrement"
-          class="number-button"
-          :disabled="isReadonly || (props.config.range && props.config.range.length > 0 && localValue <= props.config.range[0])"
-        >
-          -
-        </button>
+      <div class="label-row">
+        <!-- 占位符，确保与 checkbox 宽度对齐 -->
+        <div class="icon-placeholder"></div>
+        <label :for="props.config.id" class="input-label">
+          {{ props.config.title }}
+          <div v-if="isReadonly" class="readonly-icon" :title="readonlyReason">
+            <IconLock />
+          </div>
+          <div class="info-icon" @click="toggleHelp">
+            <IconQuestion />
+          </div>
+        </label>
+      </div>
+      <div class="field-row">
         <input
-          type="number"
+          type="text"
           :id="props.config.id"
           v-model="localValue"
           @change="handleChange"
           @blur="handleChange"
-          class="number-input"
+          class="hex-input"
           :class="{ readonly: isReadonly }"
           :disabled="isReadonly"
-          :min="props.config.range && props.config.range.length > 0 ? props.config.range[0] : undefined"
-          :max="props.config.range && props.config.range.length > 1 ? props.config.range[1] : undefined"
+          :placeholder="props.config.name"
+          pattern="^0x[0-9a-fA-F]+$"
           :title="isReadonly ? readonlyReason : undefined"
         />
-        <button
-          type="button"
-          @click="increment"
-          class="number-button"
-          :disabled="isReadonly || (props.config.range && props.config.range.length > 1 && localValue >= props.config.range[1])"
-        >
-          +
-        </button>
       </div>
     </div>
     
@@ -178,6 +140,10 @@ watch(closeAllHelpTimestamp, () => {
         <strong>Value:</strong> {{ props.config.value ?? 'n' }}
       </p>
 
+      <p class="help-kconfig-title">
+        <strong>Format:</strong> 0x followed by hexadecimal digits (0-9, A-F)
+      </p>
+
       <div v-if="props.config.help" class="help-kconfig-title">
         <strong>Help:</strong>
         <div class="content help-content" v-html="props.config.help" />
@@ -186,10 +152,6 @@ watch(closeAllHelpTimestamp, () => {
       <p v-if="props.config.directDepExpr" class="help-kconfig-title">
         <strong>Direct dependencies:</strong><br>
         {{ props.config.directDepExpr }}
-      </p>
-
-      <p v-if="props.config.range && props.config.range.length > 1" class="help-kconfig-title">
-        <strong>Range:</strong> {{ props.config.range[0] }} - {{ props.config.range[1] }}
       </p>
 
       <div class="help-kconfig-title">
@@ -216,7 +178,7 @@ watch(closeAllHelpTimestamp, () => {
 </template>
 
 <style scoped>
-.number-input-container {
+.hex-input-container {
   /* Use form-group spacing from reference project - 缩进由父组件configElement控制 */
   padding-left: 0px;
   margin-top: 9px;
@@ -226,8 +188,16 @@ watch(closeAllHelpTimestamp, () => {
 
 .input-group {
   display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 6px;
+}
+
+.label-row {
+  display: flex;
   align-items: center;
   gap: 12px;
+  width: 100%;
 }
 
 /* 占位符，用于与复选框对齐 */
@@ -245,158 +215,75 @@ watch(closeAllHelpTimestamp, () => {
   gap: 8px;
 }
 
-.number-input-wrapper {
-  display: flex;
-  align-items: center;
-  gap: 0;
-  flex: 0 0 auto;
-  width: fit-content;
+.field-row {
+  width: 100%;
+  padding-left: 80px; /* icon placeholder (27px) + 间距 12px，保持与标题的缩进层级 */
 }
 
-.number-button {
-  width: 24px;
-  height: 24px;
-  padding: 0;
-  font-size: 13px;
-  color: var(--vscode-button-foreground);
-  background-color: var(--vscode-button-background);
-  border: 1px solid var(--vscode-button-border, var(--vscode-input-border, rgba(128, 128, 128, 0.35)));
-  cursor: pointer;
-  outline: none;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  transition: background-color 0.15s ease-in-out, border-color 0.15s ease-in-out;
-}
-
-/* 浅色主题按钮优化 */
-:global(.vscode-light) .number-button {
-  border-color: rgba(0, 0, 0, 0.25);
-}
-
-/* 深色主题按钮优化 */
-:global(.vscode-dark) .number-button {
-  border-color: rgba(255, 255, 255, 0.18);
-}
-
-.number-button:hover:not(:disabled) {
-  background-color: var(--vscode-button-hoverBackground);
-}
-
-.number-button:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
-}
-
-.number-button:first-child {
-  border-radius: 2px 0 0 2px;
-}
-
-.number-button:last-child {
-  border-radius: 0 2px 2px 0;
-}
-
-.number-input {
+.hex-input {
   width: 80px;
+  max-width: 100%;
   height: 24px;
   padding: 0 8px;
   font-size: 13px;
   line-height: 22px;
+  font-family: monospace;
   color: var(--vscode-input-foreground);
   background-color: var(--vscode-input-background);
   border: 1px solid var(--vscode-input-border, rgba(128, 128, 128, 0.35));
-  border-left: none;
-  border-right: none;
+  border-radius: 2px;
   outline: none;
-  text-align: center;
   box-sizing: border-box;
   transition: border-color 0.15s ease-in-out, box-shadow 0.15s ease-in-out;
+  box-shadow: none;
 }
 
-/* 隐藏数字输入框的上下调节箭头 */
-.number-input::-webkit-outer-spin-button,
-.number-input::-webkit-inner-spin-button {
-  -webkit-appearance: none;
-  margin: 0;
+.hex-input:hover:not(:disabled):not(:focus) {
+  border-color: var(--vscode-input-border, rgba(128, 128, 128, 0.5));
 }
 
-/* Firefox */
-.number-input[type=number] {
-  -moz-appearance: textfield;
+.hex-input:focus {
+  border-color: var(--vscode-focusBorder, #007acc);
+  outline: none;
+  box-shadow: 0 0 0 1px var(--vscode-focusBorder, #007acc);
+}
+
+.hex-input::placeholder {
+  color: var(--vscode-input-placeholderForeground);
+}
+
+.hex-input:invalid {
+  border-color: var(--vscode-inputValidation-errorBorder);
 }
 
 /* 浅色主题优化 */
-:global(.vscode-light) .number-input {
-  border-top-color: rgba(0, 0, 0, 0.25);
-  border-bottom-color: rgba(0, 0, 0, 0.25);
+:global(.vscode-light) .hex-input {
+  border-color: rgba(0, 0, 0, 0.25);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.04);
+}
+
+:global(.vscode-light) .hex-input:hover:not(:disabled):not(:focus) {
+  border-color: rgba(0, 0, 0, 0.35);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08);
+}
+
+:global(.vscode-light) .hex-input:focus {
+  border-color: var(--vscode-focusBorder, #007acc);
+  box-shadow: 0 0 0 1px var(--vscode-focusBorder, #007acc), 0 1px 3px rgba(0, 0, 0, 0.1);
 }
 
 /* 深色主题优化 */
-:global(.vscode-dark) .number-input {
-  border-top-color: rgba(255, 255, 255, 0.18);
-  border-bottom-color: rgba(255, 255, 255, 0.18);
+:global(.vscode-dark) .hex-input {
+  border-color: rgba(255, 255, 255, 0.18);
 }
 
-/* 只读状态样式 */
-.number-input-container.readonly {
-  opacity: 0.7;
+:global(.vscode-dark) .hex-input:hover:not(:disabled):not(:focus) {
+  border-color: rgba(255, 255, 255, 0.28);
 }
 
-.readonly-icon {
-  color: var(--vscode-descriptionForeground);
-  font-size: 12px;
-  margin-left: 4px;
-}
-
-.number-input.readonly {
-  background-color: var(--vscode-input-background);
-  color: var(--vscode-descriptionForeground);
-  cursor: not-allowed;
-}
-
-.number-button:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
-  background-color: var(--vscode-button-secondaryBackground);
-}
-
-.readonly-notice {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  margin-top: 4px;
-  padding: 4px 8px;
-  background-color: var(--vscode-inputValidation-infoBackground);
-  border: 1px solid var(--vscode-inputValidation-infoBorder);
-  border-radius: 3px;
-  font-size: 12px;
-  color: var(--vscode-inputValidation-infoForeground);
-}
-
-.readonly-notice-icon {
-  font-size: 12px;
-  flex-shrink: 0;
-}
-
-.number-input:focus {
-  border-top-color: var(--vscode-focusBorder, #007acc);
-  border-bottom-color: var(--vscode-focusBorder, #007acc);
-  outline: none;
-  position: relative;
-  z-index: 1;
-}
-
-/* Focus 状态下整个输入组的视觉效果 */
-.number-input:focus + .number-button {
-  border-left-color: var(--vscode-focusBorder, #007acc);
-}
-
-.number-input-wrapper:has(.number-input:focus) .number-button:first-child {
-  border-right-color: var(--vscode-focusBorder, #007acc);
-}
-
-.number-input-wrapper:has(.number-input:focus) .number-button {
-  z-index: 0;
+:global(.vscode-dark) .hex-input:focus {
+  border-color: var(--vscode-focusBorder, #007acc);
+  box-shadow: 0 0 0 1px var(--vscode-focusBorder, #007acc);
 }
 
 .help-text {
@@ -465,5 +352,45 @@ watch(closeAllHelpTimestamp, () => {
   margin-left: 0;
   padding-left: 16px;
   margin-top: 4px;
+}
+
+/* 只读状态样式 */
+.hex-input-container.readonly {
+  opacity: 0.7;
+}
+
+.readonly-icon {
+  color: var(--vscode-descriptionForeground);
+  font-size: 12px;
+  margin-left: 4px;
+}
+
+.hex-input.readonly {
+  background-color: var(--vscode-input-background);
+  color: var(--vscode-descriptionForeground);
+  cursor: not-allowed;
+}
+
+.hex-input:disabled {
+  opacity: 0.7;
+  cursor: not-allowed;
+}
+
+.readonly-notice {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 4px;
+  padding: 4px 8px;
+  background-color: var(--vscode-inputValidation-infoBackground);
+  border: 1px solid var(--vscode-inputValidation-infoBorder);
+  border-radius: 3px;
+  font-size: 12px;
+  color: var(--vscode-inputValidation-infoForeground);
+}
+
+.readonly-notice-icon {
+  font-size: 12px;
+  flex-shrink: 0;
 }
 </style>

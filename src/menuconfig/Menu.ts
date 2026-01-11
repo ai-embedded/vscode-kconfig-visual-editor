@@ -43,6 +43,8 @@ export interface Menu {
   isReadonly?: boolean;       // Whether this item is readonly due to being selected by others
   readonlyReason?: string;    // Explanation of why this item is readonly
   autoSelectedValue?: boolean; // Whether the current value was set automatically by select statements
+  autoSelectedPreviousValue?: boolean | string | number; // 记录被自动选择前的原始值
+  autoSelectedPreviousWasDefault?: boolean; // 记录原值是否来自 default
   isDefaultValue?: boolean;    // Whether current值来自 default 语义（用于后续重算）
   // Source file tracking
   sourceFiles?: string[];      // List of files included via source/rsource/osource/orsource directives

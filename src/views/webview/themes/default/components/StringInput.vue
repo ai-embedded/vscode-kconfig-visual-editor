@@ -14,9 +14,9 @@
 
 <script setup lang="ts">
 import { ref, watch, computed } from 'vue';
-import { Menu } from "../../../menuconfig/Menu";
+import { Menu } from "../../../../../menuconfig/Menu";
 import { IconQuestion, IconLock } from "@iconify-prerendered/vue-codicon";
-import { useMenuconfigStore } from "../store";
+import { useMenuconfigStore } from "../../../store";
 import { storeToRefs } from "pinia";
 
 interface Props {
@@ -70,29 +70,33 @@ watch(closeAllHelpTimestamp, () => {
 <template>
   <div class="string-input-container" :class="{ readonly: isReadonly }">
     <div class="input-group">
-      <!-- 占位符，确保与 checkbox 宽度对齐 -->
-      <div class="icon-placeholder"></div>
-      <label :for="props.config.id" class="input-label">
-        {{ props.config.title }}
-        <div v-if="isReadonly" class="readonly-icon" :title="readonlyReason">
-          <IconLock />
-        </div>
-        <div class="info-icon" @click="toggleHelp">
-          <IconQuestion />
-        </div>
-      </label>
-      <input
-        type="text"
-        :id="props.config.id"
-        v-model="localValue"
-        @change="handleChange"
-        @blur="handleChange"
-        class="string-input"
-        :class="{ readonly: isReadonly }"
-        :disabled="isReadonly"
-        :placeholder="props.config.name"
-        :title="isReadonly ? readonlyReason : undefined"
-      />
+      <div class="label-row">
+        <!-- 占位符，确保与 checkbox 宽度对齐 -->
+        <div class="icon-placeholder"></div>
+        <label :for="props.config.id" class="input-label">
+          {{ props.config.title }}
+          <div v-if="isReadonly" class="readonly-icon" :title="readonlyReason">
+            <IconLock />
+          </div>
+          <div class="info-icon" @click="toggleHelp">
+            <IconQuestion />
+          </div>
+        </label>
+      </div>
+      <div class="field-row">
+        <input
+          type="text"
+          :id="props.config.id"
+          v-model="localValue"
+          @change="handleChange"
+          @blur="handleChange"
+          class="string-input"
+          :class="{ readonly: isReadonly }"
+          :disabled="isReadonly"
+          :placeholder="props.config.name"
+          :title="isReadonly ? readonlyReason : undefined"
+        />
+      </div>
     </div>
     
     <!-- 只读状态提示 -->
@@ -163,8 +167,16 @@ watch(closeAllHelpTimestamp, () => {
 
 .input-group {
   display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 6px;
+}
+
+.label-row {
+  display: flex;
   align-items: center;
   gap: 12px;
+  width: 100%;
 }
 
 /* 占位符，用于与复选框对齐 */
@@ -182,10 +194,13 @@ watch(closeAllHelpTimestamp, () => {
   gap: 8px;
 }
 
+.field-row {
+  width: 100%;
+  padding-left: 80px; /* icon placeholder (27px) + 间距 12px，确保输入框相对标题有明显缩进 */
+}
+
 .string-input {
-  flex: 0 0 auto;
-  width: 200px;
-  max-width: 280px;
+  width: min(240px, 100%); /* 缩短为原来约 2/3，减少视觉占用 */
   height: 24px;
   padding: 0 8px;
   font-size: 13px;

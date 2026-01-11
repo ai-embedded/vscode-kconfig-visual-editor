@@ -16,6 +16,7 @@ import * as path from "path";
 import { Menu, menuType } from "./Menu";
 import { formatHelpText } from "./helpTextFormatter";
 import { Logger } from "../logger/logger";
+import { ensureRtThreadEnvironment } from "../rtthread/environment";
 import { KconfigParser } from "./KconfigParser";
 
 export class KconfigMenuLoader {
@@ -68,6 +69,8 @@ export class KconfigMenuLoader {
   }
 
   public async loadKconfigMenus(): Promise<Menu[]> {
+    ensureRtThreadEnvironment(this.workspaceFolder);
+
     // If a specific target file was provided, use it
     if (this.targetFile) {
       const targetPath = this.targetFile.fsPath;

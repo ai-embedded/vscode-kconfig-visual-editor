@@ -9,6 +9,9 @@
 
   "config.enableValidation": "启用 Kconfig 文件的语法验证",
   "config.autoHeaderPath": "生成的 C 头文件保存路径（默认：与 .config 文件同目录的 config.h）。支持绝对路径或相对于 .config 所在目录的路径",
+  "config.uiTheme": "选择菜单配置界面使用的 UI 主题",
+  "config.uiTheme.default": "默认树形导航界面",
+  "config.uiTheme.modern": "现代表格布局",
 
   "config.debug.title": "调试",
   "config.debug.enabled": "启用调试模式，在输出面板中显示详细日志",
@@ -28,5 +31,6 @@
   "config.validation.title": "验证",
   "config.validation.checkSymbolReferences": "检查符号引用的有效性",
   "config.validation.checkDependencies": "验证配置依赖关系",
-  "config.validation.warnUnusedSymbols": "显示未使用符号的警告"
+  "config.validation.warnUnusedSymbols": "显示未使用符号的警告",
+  "config.rtThread.pkgsDir": "### RT-Thread\n配置用于解析 RT-Thread 软件包的 `PKGS_DIR` 路径。扩展会自动检测常见位置，并在检测成功时将结果填充到此字段。"
 }

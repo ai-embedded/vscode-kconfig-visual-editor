@@ -15,8 +15,8 @@
 <script setup lang="ts">
 import { computed, ref, onMounted, watch } from 'vue';
 import TreeNode from './TreeNode.vue';
-import { useMenuconfigStore } from "../store";
-import { Menu } from "../../../menuconfig/Menu";
+import { useMenuconfigStore } from "../../../store";
+import { Menu } from "../../../../../menuconfig/Menu";
 
 interface TreeItem {
   id: string;

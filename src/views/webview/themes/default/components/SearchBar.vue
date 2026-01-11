@@ -14,10 +14,10 @@
 
 <script setup lang="ts">
 import { storeToRefs } from "pinia";
-import { useMenuconfigStore } from "../store";
+import { useMenuconfigStore } from "../../../store";
 import { onMounted } from "vue";
 import { IconChevronDown, IconChevronUp, IconEyeClosed } from "@iconify-prerendered/vue-codicon";
-import { t } from "../i18n";
+import { t } from "../../../i18n";
 
 const store = useMenuconfigStore();
 

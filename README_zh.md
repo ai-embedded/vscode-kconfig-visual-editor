@@ -6,6 +6,17 @@ VSCode Kconfig 可视化编辑器，提供语法高亮、自动补全、验证�
 
 ![Kconfig Visual Editor](images/kconfig-visual-editor.png)
 
+支持 2 套渲染 UI 风格，可在设置中切换：
+
+1. 经典 menuconfig 风格
+
+![default](images/default.png)
+
+2. 表格式配置编辑器
+
+![modern](images/modern.png)
+
+
 ## 功能特性
 
 ### 语言支持
@@ -139,6 +150,35 @@ VSCode Kconfig 可视化编辑器，提供语法高亮、自动补全、验证�
 - 点击 "Save" 保存更改
 - 点击 "Discard" 丢弃未保存的更改
 - 点击 "Reset" 重置所有配置为默认值
+
+## 编译与安装
+1. 克隆仓库：
+   ```bash
+   git clone https://github.com/ai-embedded/vscode-kconfig-visual-editor.git
+   cd vscode-kconfig-visual-editor
+    ```
+2. 安装依赖并编译：
+   ```bash
+   npm install
+   npm run compile
+   ```
+3. 打包扩展：
+   ```bash
+    npx vsce package
+   ```
+
+4. 在 VSCode 中安装生成的 `.vsix` 文件：
+   ```bash
+    code --install-extension vscode-kconfig-visual-editor-<version>.vsix
+   ```
+
+## 版本更新记录
+
+1. 0.1.0 - 初始发布，支持基本 Kconfig 语法高亮和自动补全
+2. 0.2.0：
+    - 新增表格式 Kconfig 可视化编辑器
+    - 支持 RT-Thread 环境变量 PKGS_DIR
+    - 优化部分 Kconfig 语法显示错误
 
 ## 测试与验证
 

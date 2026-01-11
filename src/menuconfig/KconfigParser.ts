@@ -1664,6 +1664,13 @@ export class KconfigParser {
     }
 
     private resolveVariable(varName: string, visited: Set<string>): string | undefined {
+        if (varName === "PKGS_DIR") {
+            const envValue = (process.env.PKGS_DIR || "").trim();
+            if (envValue) {
+                return envValue;
+            }
+        }
+
         const variable = this.variables.get(varName);
         if (variable) {
             if (variable.isRecursive) {

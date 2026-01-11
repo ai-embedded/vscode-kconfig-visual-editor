@@ -9,6 +9,9 @@
 
   "config.enableValidation": "啟用/停用 Kconfig 檔案的語法驗證",
   "config.autoHeaderPath": "生成的 C 標頭檔儲存路徑（預設：與 .config 檔案同目錄的 config.h）。支援絕對路徑或相對於 .config 所在目錄的路徑",
+  "config.uiTheme": "選擇選單配置介面使用的 UI 主題",
+  "config.uiTheme.default": "預設樹狀導覽介面",
+  "config.uiTheme.modern": "現代表格佈局",
 
   "config.debug.title": "除錯",
   "config.debug.enabled": "啟用除錯模式，在輸出面板顯示詳細日誌",
@@ -28,5 +31,6 @@
   "config.validation.title": "驗證",
   "config.validation.checkSymbolReferences": "檢查符號引用是否有效",
   "config.validation.checkDependencies": "驗證配置相依關係",
-  "config.validation.warnUnusedSymbols": "顯示未使用符號的警告"
+  "config.validation.warnUnusedSymbols": "顯示未使用符號的警告",
+  "config.rtThread.pkgsDir": "### RT-Thread\n設定用於解析 RT-Thread 套件的 `PKGS_DIR` 路徑。擴充功能會自動偵測常見位置，並在偵測成功時將結果填入此欄位。"
 }

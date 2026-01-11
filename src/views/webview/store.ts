@@ -16,6 +16,14 @@ import { defineStore } from "pinia";
 import { ref, Ref, computed } from "vue";
 import { Menu } from "../../menuconfig/Menu";
 
+type ColorThemeKindKey = "light" | "dark";
+
+declare global {
+  interface Window {
+    __KCONFIG_VSCODE_COLOR_THEME__?: string;
+  }
+}
+
 declare var acquireVsCodeApi: any;
 let vscode: any;
 try {
@@ -38,10 +46,12 @@ export interface State {
   };
   showDiscardConfirm: boolean;
   showResetConfirm: boolean;
+  colorThemeKind: ColorThemeKindKey;
 }
 
 export const useMenuconfigStore = defineStore("menuconfig", () => {
   const items: Ref<Menu[]> = ref([]);
+  const menuIndex = ref(new Map<string, Menu>());
   const _selectedMenu = ref("");
   const searchString = ref("");
   const showDiscardConfirm = ref(false);
@@ -56,6 +66,13 @@ export const useMenuconfigStore = defineStore("menuconfig", () => {
     discard: "Discard",
     reset: "Reset",
   });
+
+  const initialColorThemeKind: ColorThemeKindKey =
+    typeof window !== "undefined" && window.__KCONFIG_VSCODE_COLOR_THEME__ === "light"
+      ? "light"
+      : "dark";
+
+  const colorThemeKind = ref<ColorThemeKindKey>(initialColorThemeKind);
 
   const selectedMenu = computed({
     get: () => _selectedMenu.value,
@@ -128,6 +145,27 @@ export const useMenuconfigStore = defineStore("menuconfig", () => {
     menu.isCollapsed = !menu.isCollapsed;
   }
 
+  function setMenuCollapseById(id: string, collapsed: boolean) {
+    const updateCollapse = (menus: Menu[]): boolean => {
+      for (const item of menus) {
+        const matchesId = item.id === id;
+        const matchesName = !item.id && item.name === id;
+        if (matchesId || matchesName) {
+          item.isCollapsed = collapsed;
+          return true;
+        }
+        if (item.children && item.children.length > 0) {
+          if (updateCollapse(item.children)) {
+            return true;
+          }
+        }
+      }
+      return false;
+    };
+
+    updateCollapse(items.value);
+  }
+
   function setAllMenusCollapsed(collapsed: boolean, menus?: Menu[]) {
     const menusToProcess = menus || items.value;
     menusToProcess.forEach(item => {
@@ -174,18 +212,183 @@ export const useMenuconfigStore = defineStore("menuconfig", () => {
     });
   }
 
+  function collectCollapseStates(menus: Menu[] | undefined, map: Map<string, boolean>) {
+    if (!menus) {
+      return;
+    }
+    menus.forEach(menu => {
+      if (!menu) {
+        return;
+      }
+      const key = menu.id || menu.name;
+      if (key && typeof menu.isCollapsed === "boolean") {
+        map.set(key, menu.isCollapsed);
+      }
+      if (menu.children && menu.children.length > 0) {
+        collectCollapseStates(menu.children, map);
+      }
+    });
+  }
+
+  function applyCollapseStates(menus: Menu[] | undefined, map: Map<string, boolean>) {
+    if (!menus || map.size === 0) {
+      return;
+    }
+    menus.forEach(menu => {
+      if (!menu) {
+        return;
+      }
+      const key = menu.id || menu.name;
+      if (key && map.has(key)) {
+        menu.isCollapsed = map.get(key)!;
+      }
+      if (menu.children && menu.children.length > 0) {
+        applyCollapseStates(menu.children, map);
+      }
+    });
+  }
+
+  function replaceItems(newMenus: Menu[], options?: { preserveCollapse?: boolean }) {
+    if (!Array.isArray(newMenus)) {
+      items.value = [];
+      menuIndex.value = new Map();
+      return;
+    }
+
+    const preserveCollapse = options?.preserveCollapse ?? true;
+
+    if (preserveCollapse && items.value && items.value.length > 0) {
+      const collapseMap = new Map<string, boolean>();
+      collectCollapseStates(items.value, collapseMap);
+      applyCollapseStates(newMenus, collapseMap);
+    }
+
+    items.value = newMenus;
+    rebuildIndex(items.value);
+  }
+
+  function updateMenuItem(updatedMenu: Menu): boolean {
+    const updateIndexForMenu = (menu: Menu) => {
+      if (menu.id) {
+        menuIndex.value.set(menu.id, menu);
+      }
+      if (menu.children && menu.children.length > 0) {
+        menu.children.forEach(updateIndexForMenu);
+      }
+    };
+
+    const update = (menus: Menu[]): boolean => {
+      for (let i = 0; i < menus.length; i++) {
+        if (menus[i].id === updatedMenu.id) {
+          menus[i] = { ...menus[i], ...updatedMenu };
+          updateIndexForMenu(menus[i]);
+          return true;
+        }
+        if (menus[i].children && menus[i].children.length > 0) {
+          if (update(menus[i].children)) {
+            return true;
+          }
+        }
+      }
+      return false;
+    };
+
+    return update(items.value);
+  }
+
   function handleVirtualNodeLoaded(menus: Menu[], nodeId?: string) {
     if (nodeId) {
       loadingVirtualNodes.value.delete(nodeId);
 //////console.log(`✅ [STORE_DEBUG] 节点 ${nodeId} 懒加载完成，清除加载状态`);
     }
-    items.value = menus;
+    replaceItems(menus);
 //////console.log(`🎯 [VIRTUAL_NODE_DEBUG] Received virtual_node_loaded with ${menus.length} menus`);
+  }
+
+  function rebuildIndex(menus: Menu[]): void {
+    const newIndex = new Map<string, Menu>();
+
+    const stack: Menu[] = [...menus];
+    while (stack.length > 0) {
+      const menu = stack.pop();
+      if (!menu) {
+        continue;
+      }
+      if (menu.id) {
+        newIndex.set(menu.id, menu);
+      }
+      if (menu.children && menu.children.length > 0) {
+        for (let i = 0; i < menu.children.length; i++) {
+          stack.push(menu.children[i]);
+        }
+      }
+    }
+
+    menuIndex.value = newIndex;
+  }
+
+  function getMenuById(id: string): Menu | undefined {
+    return menuIndex.value.get(id);
+  }
+
+  function applyVisibilityDelta(changes: Array<{
+    id: string;
+    isVisible?: boolean;
+    isContainerVisible?: boolean;
+    isReadonly?: boolean;
+    readonlyReason?: string;
+    selectedBy?: string[];
+    autoSelectedValue?: boolean;
+    autoImpliedValue?: 'y' | 'm' | boolean;
+    value?: any;
+  }>) {
+    if (!changes || changes.length === 0) {
+      return;
+    }
+
+    changes.forEach(change => {
+      if (!change || !change.id) {
+        return;
+      }
+      const target = getMenuById(change.id);
+      if (!target) {
+        return;
+      }
+
+      if (typeof change.isVisible === 'boolean') {
+        target.isVisible = change.isVisible;
+      }
+      if (typeof change.isContainerVisible === 'boolean') {
+        (target as any).isContainerVisible = change.isContainerVisible;
+      }
+      if (typeof change.isReadonly === 'boolean') {
+        target.isReadonly = change.isReadonly;
+      }
+      if (change.readonlyReason !== undefined) {
+        target.readonlyReason = change.readonlyReason;
+      }
+      if (change.selectedBy !== undefined) {
+        target.selectedBy = Array.isArray(change.selectedBy) ? [...change.selectedBy] : [];
+      }
+      if (change.autoSelectedValue !== undefined) {
+        target.autoSelectedValue = change.autoSelectedValue;
+      }
+      if (change.autoImpliedValue !== undefined) {
+        target.autoImpliedValue = change.autoImpliedValue;
+      }
+      if (change.value !== undefined) {
+        target.value = change.value;
+      }
+    });
   }
 
   function closeAllHelp() {
     // 更新时间戳以触发所有组件关闭帮助信息
     closeAllHelpTimestamp.value = Date.now();
+  }
+
+  function setColorThemeKind(kind: string) {
+    colorThemeKind.value = kind === "light" ? "light" : "dark";
   }
 
   return {
@@ -196,6 +399,7 @@ export const useMenuconfigStore = defineStore("menuconfig", () => {
     showDiscardConfirm,
     showResetConfirm,
     closeAllHelpTimestamp,
+    colorThemeKind,
     sendNewValue,
     setDefaultConfig,
     saveGuiConfig,
@@ -211,5 +415,10 @@ export const useMenuconfigStore = defineStore("menuconfig", () => {
     closeAllHelp,
     loadVirtualNodeContent,
     handleVirtualNodeLoaded,
+    replaceItems,
+    setMenuCollapseById,
+    setColorThemeKind,
+    applyVisibilityDelta,
+    updateMenuItem,
   };
 });

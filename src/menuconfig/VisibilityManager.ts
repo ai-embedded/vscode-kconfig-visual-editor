@@ -33,7 +33,15 @@ export class VisibilityManager {
     private dependencies: Map<string, DependencyInfo> = new Map();
     private configValues: ConfigContext = {};
     private allMenus: Menu[] = [];
+    private menuById: Map<string, Menu> = new Map();
+    private menuByName: Map<string, Menu> = new Map();
+    private menusByName: Map<string, Menu[]> = new Map();
     private modulesSymbolName: string | null = null;
+    private dependencyClampCache: Map<string, {
+        value: any;
+        isDefaultValue?: boolean;
+        autoSelectedValue?: boolean;
+    }> = new Map();
 
     constructor() {
         this.evaluator = new ConditionEvaluator();
@@ -48,9 +56,11 @@ export class VisibilityManager {
         Logger.debugVisibility(`Initializing with ${menus.length} menus`);
         
         this.allMenus = menus;
+        this.rebuildIndexes(menus);
         this.modulesSymbolName = this.detectModulesSymbolName(menus);
         this.buildDependencyGraph(menus);
         this.extractConfigValues(menus);
+        this.dependencyClampCache.clear();
         
         Logger.debugVisibility(`Config values before context update:`);
         Logger.debugVisibility(`  BSP_USING_UART: ${this.configValues['BSP_USING_UART']}`);
@@ -111,13 +121,64 @@ export class VisibilityManager {
                     depSatisfied = true;
                 }
 
+                const cacheKey = menu.id || menu.name;
+
                 if (!depSatisfied) {
+                    if (cacheKey && !this.dependencyClampCache.has(cacheKey)) {
+                        this.dependencyClampCache.set(cacheKey, {
+                            value: menu.value,
+                            isDefaultValue: menu.isDefaultValue,
+                            autoSelectedValue: menu.autoSelectedValue,
+                        });
+                    }
+
                     if (menu.type === menuType.bool) {
-                        menu.value = false;
-                        this.configValues[menu.name] = false;
+                        const forcedValue = false;
+                        if (!this.areMenuValuesEqual(menu.value, forcedValue, menu.type)) {
+                            menu.value = forcedValue;
+                            this.configValues[menu.name] = forcedValue;
+                            this.evaluator.setValue(menu.name, forcedValue);
+                        } else {
+                            this.configValues[menu.name] = forcedValue;
+                        }
                     } else if (menu.type === menuType.tristate) {
-                        menu.value = 'n';
-                        this.configValues[menu.name] = 'n';
+                        const forcedValue: 'n' = 'n';
+                        if (!this.areMenuValuesEqual(menu.value, forcedValue, menu.type)) {
+                            menu.value = forcedValue;
+                            this.configValues[menu.name] = forcedValue;
+                            this.evaluator.setValue(menu.name, forcedValue);
+                        } else {
+                            this.configValues[menu.name] = forcedValue;
+                        }
+                    }
+                } else if (cacheKey && this.dependencyClampCache.has(cacheKey)) {
+                    const cached = this.dependencyClampCache.get(cacheKey);
+                    this.dependencyClampCache.delete(cacheKey);
+
+                    if (cached) {
+                        const restoredValue = cached.value;
+                        if (!this.areMenuValuesEqual(menu.value, restoredValue, menu.type)) {
+                            menu.value = restoredValue;
+                            if (menu.name) {
+                                this.configValues[menu.name] = restoredValue;
+                                this.evaluator.setValue(menu.name, restoredValue);
+                            }
+                        } else if (menu.name) {
+                            this.configValues[menu.name] = restoredValue;
+                        }
+
+                        if (cached.isDefaultValue !== undefined) {
+                            menu.isDefaultValue = cached.isDefaultValue;
+                        }
+                        if (cached.autoSelectedValue !== undefined) {
+                            menu.autoSelectedValue = cached.autoSelectedValue;
+                        }
+
+                        // When deps become satisfied again, re-evaluate defaults
+                        // for symbols that actually define defaults.
+                        if (menu.defaults && menu.defaults.length > 0) {
+                            this.reapplyDefaultsForMenu(menu);
+                        }
                     }
                 }
             }
@@ -515,7 +576,11 @@ export class VisibilityManager {
             if (menu.autoSelectedValue !== undefined) {
                 Logger.debugVisibility(`Clearing auto-selected flag for ${menu.name} due to user modification`);
                 menu.autoSelectedValue = undefined;
+                menu.autoSelectedPreviousValue = undefined;
+                menu.autoSelectedPreviousWasDefault = undefined;
             }
+
+            this.syncSymbolState(menu);
             
             // Process select statements (must be done before updating readonly states)
             if (menu.type === menuType.bool) {
@@ -742,26 +807,47 @@ export class VisibilityManager {
         return keywords.has(str.toUpperCase());
     }
 
+    private rebuildIndexes(menus: Menu[]): void {
+        this.menuById.clear();
+        this.menuByName.clear();
+        this.menusByName.clear();
+
+        const stack: Menu[] = [...menus];
+        while (stack.length > 0) {
+            const menu = stack.pop();
+            if (!menu) {
+                continue;
+            }
+
+            if (menu.id) {
+                this.menuById.set(menu.id, menu);
+            }
+
+            if (menu.name) {
+                if (!this.menuByName.has(menu.name)) {
+                    this.menuByName.set(menu.name, menu);
+                }
+                const group = this.menusByName.get(menu.name) ?? [];
+                group.push(menu);
+                this.menusByName.set(menu.name, group);
+            }
+
+            if (menu.children && menu.children.length > 0) {
+                for (let i = 0; i < menu.children.length; i++) {
+                    stack.push(menu.children[i]);
+                }
+            }
+        }
+    }
+
     /**
      * Find menu item by ID
      */
     private findMenuById(id: string): Menu | null {
-        const findInMenus = (menus: Menu[]): Menu | null => {
-            for (const menu of menus) {
-                if (menu.id === id) {
-                    return menu;
-                }
-                if (menu.children) {
-                    const found = findInMenus(menu.children);
-                    if (found) {
-                        return found;
-                    }
-                }
-            }
+        if (!id) {
             return null;
-        };
-
-        return findInMenus(this.allMenus);
+        }
+        return this.menuById.get(id) ?? null;
     }
 
     private detectModulesSymbolName(menus: Menu[]): string | null {
@@ -809,22 +895,51 @@ export class VisibilityManager {
      * Find menu item by configuration name
      */
     private findMenuByName(name: string): Menu | null {
-        const findInMenus = (menus: Menu[]): Menu | null => {
-            for (const menu of menus) {
-                if (menu.name === name) {
-                    return menu;
-                }
-                if (menu.children) {
-                    const found = findInMenus(menu.children);
-                    if (found) {
-                        return found;
-                    }
-                }
-            }
+        if (!name) {
             return null;
-        };
+        }
+        return this.menuByName.get(name) ?? null;
+    }
 
-        return findInMenus(this.allMenus);
+    private getMenusByName(name: string): Menu[] {
+        if (!name) {
+            return [];
+        }
+        return this.menusByName.get(name) ?? [];
+    }
+
+    private mergeSelectedByForName(name: string): string[] {
+        const merged = new Set<string>();
+        for (const menu of this.getMenusByName(name)) {
+            if (menu.selectedBy) {
+                menu.selectedBy.forEach((selector) => merged.add(selector));
+            }
+        }
+        return Array.from(merged);
+    }
+
+    private syncSymbolState(source: Menu): void {
+        if (!source.name) {
+            return;
+        }
+        const group = this.getMenusByName(source.name);
+        if (group.length <= 1) {
+            return;
+        }
+
+        const selectedBy = this.mergeSelectedByForName(source.name);
+
+        for (const menu of group) {
+            if (menu === source) {
+                continue;
+            }
+            menu.value = source.value;
+            menu.isDefaultValue = source.isDefaultValue;
+            menu.autoSelectedValue = source.autoSelectedValue;
+            menu.autoSelectedPreviousValue = source.autoSelectedPreviousValue;
+            menu.autoSelectedPreviousWasDefault = source.autoSelectedPreviousWasDefault;
+            menu.selectedBy = [...selectedBy];
+        }
     }
 
     private normalizeTristateValue(value: any): 'n' | 'm' | 'y' {
@@ -1394,6 +1509,7 @@ export class VisibilityManager {
         if (!target.selectedBy.includes(selector.name)) {
             target.selectedBy.push(selector.name);
             Logger.debugSelect(`Added ${selector.name} as selector for ${target.name}`);
+            this.syncSymbolState(target);
         }
     }
 
@@ -1406,6 +1522,7 @@ export class VisibilityManager {
             if (index > -1) {
                 target.selectedBy.splice(index, 1);
                 // Logger.info(`[SELECT_PROCESSOR] Removed ${selector.name} as selector for ${target.name}`);
+                this.syncSymbolState(target);
             }
         }
     }
@@ -1417,12 +1534,18 @@ export class VisibilityManager {
         if (target.type === menuType.bool) {
             Logger.debugSelect(`[SELECT_PROCESSOR] Auto-selecting ${target.name} due to ${selector.name}`);
 
+            if (target.autoSelectedValue === undefined) {
+                target.autoSelectedPreviousValue = target.value;
+                target.autoSelectedPreviousWasDefault = target.isDefaultValue;
+            }
+
             // 无论当前值如何，都确保目标被选中并标记为自动选择
             target.value = true;
             target.autoSelectedValue = true; // 标记为自动选择的值
             target.isDefaultValue = false;
             this.configValues[target.name] = true;
             this.evaluator.setValue(target.name, true);
+            this.syncSymbolState(target);
 
             Logger.debugSelect(`[SELECT_PROCESSOR] ${target.name} set to true and marked as auto-selected`);
 
@@ -1448,17 +1571,36 @@ export class VisibilityManager {
         });
         
         // 如果没有其他活跃的选择器，且当前值是自动选择的，则取消选择
-        if (!hasOtherActiveSelectors && target.value === true && target.autoSelectedValue) {
-            // Logger.info(`[SELECT_PROCESSOR] Auto-deselecting ${target.name} as no active selectors remain and value was auto-selected`);
-            target.value = false;
+        if (!hasOtherActiveSelectors && target.autoSelectedValue) {
+            const previousValue = target.autoSelectedPreviousValue;
+            const previousWasDefault = target.autoSelectedPreviousWasDefault;
+            const fallbackValue = this.getFallbackValueForType(target.type);
+            const restoredValue = previousValue !== undefined ? previousValue : fallbackValue;
+
+            Logger.debugSelect(`[SELECT_PROCESSOR] Restoring ${target.name} to ${JSON.stringify(restoredValue)} with fallback ${JSON.stringify(fallbackValue)}`);
+
+            target.value = restoredValue;
             target.autoSelectedValue = undefined; // 清除自动选择标记
-            this.configValues[target.name] = false;
-            this.evaluator.setValue(target.name, false);
-            
-            // 递归处理被取消选择项的 select 语句
-            if (target.select && target.select.length > 0) {
-                this.processSelectStatements(target, false);
+            target.autoSelectedPreviousValue = undefined;
+            target.autoSelectedPreviousWasDefault = undefined;
+
+            if (previousWasDefault !== undefined) {
+                target.isDefaultValue = previousWasDefault;
+            } else if (restoredValue === fallbackValue) {
+                target.isDefaultValue = true;
+            } else {
+                target.isDefaultValue = false;
             }
+
+            this.configValues[target.name] = restoredValue;
+            this.evaluator.setValue(target.name, restoredValue);
+            
+            // 递归处理被取消选择项的 select 语句或恢复用户选择
+            if (target.select && target.select.length > 0 && target.type === menuType.bool) {
+                const isEnabledAfterRestore = restoredValue === true;
+                this.processSelectStatements(target, isEnabledAfterRestore);
+            }
+            this.syncSymbolState(target);
         } else if (!hasOtherActiveSelectors && target.value === true) {
             // 如果值不是自动选择的（用户手动设置），则保留当前值但记录信息
             // Logger.info(`[SELECT_PROCESSOR] ${target.name} no longer has active selectors, but keeping user-set value`);
@@ -1521,8 +1663,13 @@ export class VisibilityManager {
                     // Auto-select the item if it has active selectors
                     if (menu.type === 'bool' && menu.value !== true) {
                         Logger.debugVisibility(`[READONLY_PROCESSOR] Auto-selecting ${menu.name} due to select relationship`);
+                        if (menu.autoSelectedValue === undefined) {
+                            menu.autoSelectedPreviousValue = menu.value;
+                            menu.autoSelectedPreviousWasDefault = menu.isDefaultValue;
+                        }
                         menu.value = true;
                         menu.autoSelectedValue = true;
+                        menu.isDefaultValue = false;
                         this.configValues[menu.name] = true;
                         this.evaluator.setValue(menu.name, true);
                     }

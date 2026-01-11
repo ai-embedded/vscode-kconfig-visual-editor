@@ -14,11 +14,11 @@
 
 <script setup lang="ts">
 import { ref, watch, computed, nextTick } from 'vue';
-import { Menu } from "../../../menuconfig/Menu";
+import { Menu } from "../../../../../menuconfig/Menu";
 import { IconCheck, IconQuestion } from "@iconify-prerendered/vue-codicon";
-import { useMenuconfigStore } from "../store";
+import { useMenuconfigStore } from "../../../store";
 import { storeToRefs } from "pinia";
-import { t } from "../i18n";
+import { t } from "../../../i18n";
 
 interface Props {
   config: Menu;

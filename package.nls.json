@@ -9,6 +9,9 @@
 
   "config.enableValidation": "Enable syntax validation for Kconfig files",
   "config.autoHeaderPath": "Path to write the generated C header file (default: config.h in the same directory as .config). Supports absolute paths or paths relative to .config directory",
+  "config.uiTheme": "Select the UI theme used by the menuconfig webview",
+  "config.uiTheme.default": "Default tree navigation interface",
+  "config.uiTheme.modern": "Modern table layout",
 
   "config.debug.title": "Debug",
   "config.debug.enabled": "Enable debug mode to show detailed logs in the output panel",
@@ -28,5 +31,6 @@
   "config.validation.title": "Validation",
   "config.validation.checkSymbolReferences": "Verify that symbol references are valid",
   "config.validation.checkDependencies": "Validate configuration dependencies",
-  "config.validation.warnUnusedSymbols": "Show warnings for unused symbols"
+  "config.validation.warnUnusedSymbols": "Show warnings for unused symbols",
+  "config.rtThread.pkgsDir": "### RT-Thread\nConfigure the `PKGS_DIR` path used to resolve RT-Thread packages. The extension auto-detects common locations and updates this field with the detected value when possible."
 }

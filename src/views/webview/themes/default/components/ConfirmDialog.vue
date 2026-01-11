@@ -13,7 +13,7 @@
 -->
 
 <script setup lang="ts">
-import { t } from "../i18n";
+import { t } from "../../../i18n";
 
 interface Props {
   visible: boolean;

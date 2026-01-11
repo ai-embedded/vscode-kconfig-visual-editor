@@ -14,11 +14,11 @@
 
 <script setup lang="ts">
 import { computed, nextTick, ref, watch } from "vue";
-import { Menu } from "../../../menuconfig/Menu";
-import { IconCheck, IconQuestion } from "@iconify-prerendered/vue-codicon";
-import { useMenuconfigStore } from "../store";
+import { Menu } from "../../../../../menuconfig/Menu";
+import { IconQuestion } from "@iconify-prerendered/vue-codicon";
+import { useMenuconfigStore } from "../../../store";
 import { storeToRefs } from "pinia";
-import { t } from "../i18n";
+import { t } from "../../../i18n";
 
 type TriValue = "y" | "m" | "n";
 
@@ -83,12 +83,7 @@ const isHelpVisible = ref(false);
 const isReadonly = computed(() => props.config.isReadonly === true);
 const isToggleDisabled = computed(() => isReadonly.value || allowedOptions.value.length <= 1);
 
-const isBinaryMode = computed(() => !allowedOptions.value.includes("m"));
-
 const badgeSymbol = computed(() => {
-  if (isBinaryMode.value) {
-    return "";
-  }
   switch (localValue.value) {
     case "y":
       return "*";
@@ -98,8 +93,6 @@ const badgeSymbol = computed(() => {
       return " ";
   }
 });
-
-const showBinaryCheck = computed(() => isBinaryMode.value && localValue.value === "y");
 
 const nextValue = (value: TriValue): TriValue => {
   const options = allowedOptions.value;
@@ -164,10 +157,9 @@ watch(closeAllHelpTimestamp, () => {
         type="button"
         :disabled="isToggleDisabled"
         :aria-label="`Toggle ${props.config.title}`"
-        :class="[localValue, { binary: isBinaryMode }]"
+        :class="[localValue]"
         @click="cycleValue"
       >
-        <IconCheck v-if="showBinaryCheck" class="binary-check-icon" />
         {{ badgeSymbol }}
       </button>
       <label

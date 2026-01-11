@@ -2,7 +2,7 @@
   "name": "kconfig-visual-editor",
   "displayName": "%displayName%",
   "description": "%description%",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "license": "Apache-2.0",
   "publisher": "flyingcys",
   "icon": "resources/icons/install-complete.png",
@@ -123,6 +123,24 @@
           "type": "string",
           "default": "config.h",
           "description": "%config.autoHeaderPath%"
+        },
+        "kconfig.uiTheme": {
+          "scope": "window",
+          "type": "string",
+          "default": "default",
+          "enum": ["default", "modern"],
+          "enumDescriptions": [
+            "%config.uiTheme.default%",
+            "%config.uiTheme.modern%"
+          ],
+          "description": "%config.uiTheme%"
+        },
+        "kconfig.rtThread.pkgsDir": {
+          "scope": "window",
+          "type": "string",
+          "default": "~/.env/packages",
+          "order": 50,
+          "markdownDescription": "%config.rtThread.pkgsDir%"
         }
       }
     }

@@ -13,10 +13,10 @@
 -->
 
 <script setup lang="ts">
-import { ref, watch, computed } from 'vue';
-import { Menu } from "../../../menuconfig/Menu";
+import { ref, watch, computed, onMounted, nextTick } from 'vue';
+import { Menu } from "../../../../../menuconfig/Menu";
 import { IconQuestion, IconLock } from "@iconify-prerendered/vue-codicon";
-import { useMenuconfigStore } from "../store";
+import { useMenuconfigStore } from "../../../store";
 import { storeToRefs } from "pinia";
 
 interface Props {
@@ -47,6 +47,63 @@ const options = computed(() => {
   return props.config.children || [];
 });
 
+const selectRef = ref<HTMLSelectElement | null>(null);
+const selectWidth = ref('140px');
+let textMeasureCanvas: HTMLCanvasElement | null = null;
+
+const optionLabels = computed(() =>
+  options.value.map((opt: Menu) => opt.title || opt.name || opt.id || '').filter(Boolean)
+);
+
+const measureTextWidth = (text: string, font: string): number => {
+  if (!textMeasureCanvas) {
+    textMeasureCanvas = document.createElement('canvas');
+  }
+  const ctx = textMeasureCanvas.getContext('2d');
+  if (!ctx) {
+    return text.length * 8;
+  }
+  ctx.font = font;
+  return ctx.measureText(text).width;
+};
+
+const updateSelectWidth = () => {
+  const labels = optionLabels.value;
+  const minWidth = 140;
+  if (labels.length === 0) {
+    selectWidth.value = `${minWidth}px`;
+    return;
+  }
+
+  const target = selectRef.value;
+  let font = '13px sans-serif';
+  let paddingLeft = 8;
+  let paddingRight = 32;
+  let borderLeft = 1;
+  let borderRight = 1;
+
+  if (target && typeof window !== 'undefined') {
+    const style = window.getComputedStyle(target);
+    font = style.font || `${style.fontWeight} ${style.fontSize} ${style.fontFamily}`;
+    paddingLeft = parseFloat(style.paddingLeft) || paddingLeft;
+    paddingRight = parseFloat(style.paddingRight) || paddingRight;
+    borderLeft = parseFloat(style.borderLeftWidth) || borderLeft;
+    borderRight = parseFloat(style.borderRightWidth) || borderRight;
+  }
+
+  const maxLabelWidth = labels.reduce((max: number, text: string) => {
+    return Math.max(max, measureTextWidth(text, font));
+  }, 0);
+
+  const arrowSize = 16;
+  const arrowGap = 8;
+  const arrowExtra = Math.max(0, arrowSize + arrowGap - paddingRight);
+  const totalWidth = Math.ceil(
+    maxLabelWidth + paddingLeft + paddingRight + borderLeft + borderRight + arrowExtra
+  );
+  selectWidth.value = `${Math.max(minWidth, totalWidth)}px`;
+};
+
 function handleChange() {
   // 如果是只读状态，不处理变更
   if (isReadonly.value) {
@@ -63,6 +120,14 @@ watch(() => props.config.value, (newValue) => {
   localValue.value = newValue || '';
 });
 
+watch(optionLabels, () => {
+  nextTick(updateSelectWidth);
+}, { immediate: true });
+
+onMounted(() => {
+  nextTick(updateSelectWidth);
+});
+
 // 监听全局关闭所有帮助信息
 watch(closeAllHelpTimestamp, () => {
   if (isHelpVisible.value) {
@@ -74,30 +139,36 @@ watch(closeAllHelpTimestamp, () => {
 <template>
   <div class="select-dropdown-container" :class="{ readonly: isReadonly }">
     <div class="input-group">
-      <!-- 占位符，确保与 checkbox 宽度对齐 -->
-      <div class="icon-placeholder"></div>
-      <label :for="props.config.id" class="input-label">
-        {{ props.config.title }}
-        <div v-if="isReadonly" class="readonly-icon" :title="readonlyReason">
-          <IconLock />
-        </div>
-        <div class="info-icon" @click="toggleHelp">
-          <IconQuestion />
-        </div>
-      </label>
-      <select
-        :id="props.config.id"
-        v-model="localValue"
-        @change="handleChange"
-        class="select-dropdown"
-        :class="{ readonly: isReadonly }"
-        :disabled="isReadonly"
-        :title="isReadonly ? readonlyReason : undefined"
-      >
-        <option v-for="option in options" :key="option.id" :value="option.name">
-          {{ option.title }}
-        </option>
-      </select>
+      <div class="label-row">
+        <!-- 占位符，确保与 checkbox 宽度对齐 -->
+        <div class="icon-placeholder"></div>
+        <label :for="props.config.id" class="input-label">
+          {{ props.config.title }}
+          <div v-if="isReadonly" class="readonly-icon" :title="readonlyReason">
+            <IconLock />
+          </div>
+          <div class="info-icon" @click="toggleHelp">
+            <IconQuestion />
+          </div>
+        </label>
+      </div>
+      <div class="field-row">
+        <select
+          :id="props.config.id"
+          ref="selectRef"
+          v-model="localValue"
+          @change="handleChange"
+          class="select-dropdown"
+          :class="{ readonly: isReadonly }"
+          :disabled="isReadonly"
+          :title="isReadonly ? readonlyReason : undefined"
+          :style="{ width: selectWidth, maxWidth: '100%' }"
+        >
+          <option v-for="option in options" :key="option.id" :value="option.name">
+            {{ option.title }}
+          </option>
+        </select>
+      </div>
     </div>
     
     <!-- 只读状态提示 -->
@@ -168,9 +239,16 @@ watch(closeAllHelpTimestamp, () => {
 
 .input-group {
   display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 6px;
+}
+
+.label-row {
+  display: flex;
   align-items: center;
   gap: 12px;
-  flex-wrap: nowrap;
+  width: 100%;
 }
 
 /* 占位符，用于与复选框对齐 */
@@ -188,6 +266,11 @@ watch(closeAllHelpTimestamp, () => {
   gap: 8px;
 }
 
+.field-row {
+  width: 100%;
+  padding-left: 80px; /* icon placeholder (27px) + 间距 12px，确保下拉框相对标题有清晰缩进 */
+}
+
 .select-dropdown {
   --kconfig-select-arrow: url("data:image/svg+xml;charset=utf-8,%3Csvg width='16' height='16' viewBox='0 0 16 16' fill='none' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M4 6l4 4 4-4' stroke='%23C8C8C8' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
   --kconfig-select-bg: var(--vscode-dropdown-background, var(--vscode-input-background));
@@ -195,10 +278,10 @@ watch(closeAllHelpTimestamp, () => {
   --kconfig-select-foreground: var(--vscode-dropdown-foreground, var(--vscode-input-foreground));
   --kconfig-select-shadow: none;
 
-  flex: 0 0 auto;
-  width: auto;
-  min-width: 150px;
-  max-width: 500px;
+  width: auto; /* 宽度由内联 style 动态控制 */
+  max-width: 100%;
+  display: inline-block;
+  align-self: flex-start;
   height: 26px;
   padding: 2px 32px 2px 8px;
   font-size: 13px;

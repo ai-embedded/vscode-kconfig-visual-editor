@@ -14,7 +14,7 @@
 
 <script setup lang="ts">
 import { computed } from 'vue';
-import { useMenuconfigStore } from "../store";
+import { useMenuconfigStore } from "../../../store";
 
 // Simple icon components since we don't have the iconify package
 const IconChevronRight = { template: '<span>▶</span>' };

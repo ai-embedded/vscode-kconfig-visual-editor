@@ -14,11 +14,19 @@
 import { createApp } from "vue";
 import { createPinia } from "pinia";
 import { useMenuconfigStore } from "./store";
-import Menuconfig from "./Menuconfig.vue";
+import resolveTheme from "./themes";
 import FrontendDebugger from "./debug";
 
 //console.log("[WEBVIEW] Starting Vue app initialization...");
 
+declare global {
+  interface Window {
+    __KCONFIG_THEME__?: string;
+  }
+}
+
+const requestedTheme = typeof window !== "undefined" ? window.__KCONFIG_THEME__ : undefined;
+const Menuconfig = resolveTheme(requestedTheme);
 const app = createApp(Menuconfig);
 const pinia = createPinia();
 
@@ -46,22 +54,6 @@ function _findMenuById(menus: any[], id: string): any | null {
     }
   }
   return null;
-}
-
-// Helper function to update a single menu item in store
-function updateMenuInStore(menus: any[], updatedMenu: any): boolean {
-  for (let i = 0; i < menus.length; i++) {
-    if (menus[i].id === updatedMenu.id) {
-      menus[i] = { ...menus[i], ...updatedMenu };
-      return true;
-    }
-    if (menus[i].children) {
-      if (updateMenuInStore(menus[i].children, updatedMenu)) {
-        return true;
-      }
-    }
-  }
-  return false;
 }
 
 // Helper function to merge only visibility updates without overwriting values
@@ -121,7 +113,7 @@ window.addEventListener("message", (event: any) => {
             //console.log(`[WEBVIEW] First child: name="${message.menus[0].children[0].name}", title="${message.menus[0].children[0].title}"`);
           }
         }
-        store.items = message.menus;
+        store.replaceItems(message.menus, { preserveCollapse: false });
         //console.log(`[WEBVIEW] Store items set, store.items.length = ${store.items.length}`);
       }
       if (message.debugConfig) {
@@ -130,7 +122,7 @@ window.addEventListener("message", (event: any) => {
       break;
     case "update_values":
       if (message.updated_values) {
-        store.items = message.updated_values;
+        store.replaceItems(message.updated_values);
       }
       break;
     case "load_dictionary":
@@ -145,15 +137,25 @@ window.addEventListener("message", (event: any) => {
         mergeVisibilityUpdates(store.items, message.menus);
       }
       break;
+    case "visibility_delta":
+      if (message.changes) {
+        store.applyVisibilityDelta(message.changes);
+      }
+      break;
     case "value_updated":
       if (message.menu) {
-        updateMenuInStore(store.items, message.menu);
+        store.updateMenuItem(message.menu);
       }
       break;
     case "virtual_node_loaded":
       // Handle lazy-loaded virtual node content
       if (message.menus) {
         store.handleVirtualNodeLoaded(message.menus, message.nodeId);
+      }
+      break;
+    case "color_theme_changed":
+      if (message.themeKind) {
+        store.setColorThemeKind(message.themeKind);
       }
       break;
     default:

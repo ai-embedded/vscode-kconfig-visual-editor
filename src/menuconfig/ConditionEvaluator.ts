@@ -45,6 +45,7 @@ export interface ConditionNode {
  */
 export class ConditionEvaluator {
     private context: ConfigContext;
+    private astCache: Map<string, ConditionNode> = new Map();
 
     constructor(context: ConfigContext = {}) {
         this.context = context;
@@ -92,56 +93,84 @@ export class ConditionEvaluator {
      * Parse condition expression into AST
      */
     private parseExpression(expression: string): ConditionNode {
-        // Logger.debug(`[PARSE_EXPR] Input expression: "${expression}"`);
-        
-        // Remove outer parentheses if they wrap the entire expression
-        const cleanedExpression = this.removeOuterParentheses(expression);
-        // Logger.debug(`[PARSE_EXPR] After removeOuterParentheses: "${cleanedExpression}"`);
-        expression = cleanedExpression;
-        
+        const normalized = this.normalizeExpression(expression);
+
+        if (normalized === '') {
+            const literalTrue: ConditionNode = {
+                type: 'LITERAL',
+                value: true,
+                literalKind: 'boolean',
+                rawValue: 'true'
+            };
+            this.astCache.set(normalized, literalTrue);
+            return literalTrue;
+        }
+
+        const cached = this.astCache.get(normalized);
+        if (cached) {
+            return cached;
+        }
+
         // Parse OR expressions (lowest precedence)
-        const orMatch = this.findOperator(expression, '||');
+        const orMatch = this.findOperator(normalized, '||');
         if (orMatch) {
-            // Logger.debug(`[PARSE_EXPR] Found OR operator, left="${orMatch.left}", right="${orMatch.right}"`);
-            return {
+            const result: ConditionNode = {
                 type: 'OR',
                 left: this.parseExpression(orMatch.left),
                 right: this.parseExpression(orMatch.right)
             };
+            this.astCache.set(normalized, result);
+            return result;
         }
 
         // Parse AND expressions
-        const andMatch = this.findOperator(expression, '&&');
+        const andMatch = this.findOperator(normalized, '&&');
         if (andMatch) {
-            // Logger.debug(`[PARSE_EXPR] Found AND operator, left="${andMatch.left}", right="${andMatch.right}"`);
-            return {
+            const result: ConditionNode = {
                 type: 'AND',
                 left: this.parseExpression(andMatch.left),
                 right: this.parseExpression(andMatch.right)
             };
+            this.astCache.set(normalized, result);
+            return result;
         }
 
         // Parse NOT expressions
-        if (expression.startsWith('!')) {
-            return {
+        if (normalized.startsWith('!')) {
+            const result: ConditionNode = {
                 type: 'NOT',
-                left: this.parseExpression(expression.substring(1).trim())
+                left: this.parseExpression(normalized.substring(1).trim())
             };
+            this.astCache.set(normalized, result);
+            return result;
         }
 
         // Parse comparison expressions
-        const comparisonMatch = this.findComparison(expression);
+        const comparisonMatch = this.findComparison(normalized);
         if (comparisonMatch) {
-            return {
+            const result: ConditionNode = {
                 type: 'COMPARISON',
                 left: this.parseExpression(comparisonMatch.left),
                 right: this.parseExpression(comparisonMatch.right),
                 operator: comparisonMatch.operator as any
             };
+            this.astCache.set(normalized, result);
+            return result;
         }
 
         // Parse literals and variables
-        return this.parseLiteral(expression);
+        const literalNode = this.parseLiteral(normalized);
+        this.astCache.set(normalized, literalNode);
+        return literalNode;
+    }
+
+    private normalizeExpression(expression: string): string {
+        if (!expression) {
+            return '';
+        }
+        let normalized = expression.trim();
+        normalized = this.removeOuterParentheses(normalized);
+        return normalized;
     }
 
     /**

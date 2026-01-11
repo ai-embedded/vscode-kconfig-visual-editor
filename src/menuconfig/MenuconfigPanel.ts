@@ -18,9 +18,12 @@ import { KconfigServer } from "./KconfigServer";
 import { Logger } from "../logger/logger";
 import { t } from "../i18n";
 
+type WebviewColorTheme = "light" | "dark";
+
 export class MenuconfigPanel {
   public static currentPanel: MenuconfigPanel | undefined;
   private _disposed = false;
+  private static readonly supportedThemes = ["default", "modern"] as const;
 
   public static createOrShow(
     extensionUri: vscode.Uri,
@@ -98,7 +101,10 @@ export class MenuconfigPanel {
     const scriptPath = this.panel.webview.asWebviewUri(
       vscode.Uri.joinPath(extensionUri, "dist", "views", "webview-bundle.js")
     );
-    this.panel.webview.html = this.createMenuconfigHtml(scriptPath);
+    const themeKey = this.resolveUiTheme();
+    const colorThemeKind = this.mapColorThemeKind(vscode.window.activeColorTheme.kind);
+    this.panel.webview.html = this.createMenuconfigHtml(scriptPath, themeKey, colorThemeKind);
+    this.registerColorThemeSync();
 
     const menuconfigViewDict = {
       save: "Save",
@@ -160,10 +166,6 @@ export class MenuconfigPanel {
           
           if (this.kconfigServer) {
             this.kconfigServer.updateValue(updatedMenu);
-            
-            // Send updated menus back to frontend to reflect changes (including select effects)
-            const updatedMenus = this.kconfigServer.getMenus();
-            this.safelySendMenuData("visibility_updated", updatedMenus);
             // Logger.info(`[PANEL] Sent visibility_updated with ${updatedMenus.length} menus after updateValue`);
           } else {
             Logger.error(`[PANEL] KconfigServer not available for updateValue`);
@@ -550,11 +552,21 @@ export class MenuconfigPanel {
         });
         
         // Listen to visibility changes
-        this.kconfigServer.on("visibilityChanged", (menus: Menu[]) => {
-          // Logger.info(`[PANEL] Received visibilityChanged event, updating ${menus.length} menus in UI`);
-          
-          // Send updated menus with new visibility states to frontend
-          this.safelySendMenuData("visibility_updated", menus);
+        this.kconfigServer.on("visibilityChanged", (changes: Array<{
+          id: string;
+          isVisible?: boolean;
+          isContainerVisible?: boolean;
+          isReadonly?: boolean;
+          readonlyReason?: string;
+          selectedBy?: string[];
+          autoSelectedValue?: boolean;
+          autoImpliedValue?: 'y' | 'm' | boolean;
+          value?: any;
+        }>) => {
+          if (!changes || changes.length === 0) {
+            return;
+          }
+          this.sendVisibilityDelta(changes);
         });
       }
     } catch (error) {
@@ -645,8 +657,70 @@ export class MenuconfigPanel {
     }
   }
 
-  private createMenuconfigHtml(scriptPath: vscode.Uri) {
+  private sendVisibilityDelta(changes: Array<{
+    id: string;
+    isVisible?: boolean;
+    isContainerVisible?: boolean;
+    isReadonly?: boolean;
+    readonlyReason?: string;
+    selectedBy?: string[];
+    autoSelectedValue?: boolean;
+    autoImpliedValue?: 'y' | 'm' | boolean;
+    value?: any;
+  }>): void {
+    try {
+      this.panel.webview.postMessage({
+        command: "visibility_delta",
+        changes
+      });
+    } catch (error) {
+      Logger.error("Failed to send visibility delta", error as Error);
+    }
+  }
+
+  private resolveUiTheme(): string {
+    const configured = vscode.workspace
+      .getConfiguration("kconfig")
+      .get<string>("uiTheme", MenuconfigPanel.supportedThemes[0]);
+
+    if (configured && MenuconfigPanel.supportedThemes.includes(configured as typeof MenuconfigPanel.supportedThemes[number])) {
+      return configured;
+    }
+    return MenuconfigPanel.supportedThemes[0];
+  }
+
+  private mapColorThemeKind(kind: vscode.ColorThemeKind): WebviewColorTheme {
+    switch (kind) {
+      case vscode.ColorThemeKind.Light:
+      case vscode.ColorThemeKind.HighContrastLight:
+        return "light";
+      case vscode.ColorThemeKind.Dark:
+      case vscode.ColorThemeKind.HighContrast:
+      default:
+        return "dark";
+    }
+  }
+
+  private registerColorThemeSync(): void {
+    const disposable = vscode.window.onDidChangeActiveColorTheme((theme) => {
+      const mapped = this.mapColorThemeKind(theme.kind);
+      try {
+        this.panel.webview.postMessage({
+          command: "color_theme_changed",
+          themeKind: mapped,
+        });
+      } catch (error) {
+        Logger.error("Failed to notify webview about color theme change", error as Error);
+      }
+    });
+
+    this.disposables.push(disposable);
+  }
+
+  private createMenuconfigHtml(scriptPath: vscode.Uri, themeKey: string, colorThemeKind: WebviewColorTheme) {
     const nonce = this.getNonce();
+    const sanitizedTheme = themeKey.replace(/"/g, "&quot;");
+    const sanitizedColorKind = colorThemeKind.replace(/"/g, "&quot;");
     
     return `<!DOCTYPE html>
         <html lang="en">
@@ -671,6 +745,7 @@ export class MenuconfigPanel {
             </head>
             <body>
               <div id="menuconfig">Loading...</div>
+              <script nonce="${nonce}">window.__KCONFIG_THEME__ = "${sanitizedTheme}";window.__KCONFIG_VSCODE_COLOR_THEME__ = "${sanitizedColorKind}";</script>
               <script nonce="${nonce}" src="${scriptPath}"></script>
             </body>
         </html>`;

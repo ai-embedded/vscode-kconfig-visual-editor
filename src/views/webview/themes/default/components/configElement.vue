@@ -13,8 +13,8 @@
 -->
 
 <script setup lang="ts">
-import { Menu, menuType } from "../../../menuconfig/Menu";
-import { useMenuconfigStore } from "../store";
+import { Menu, menuType } from "../../../../../menuconfig/Menu";
+import { useMenuconfigStore } from "../../../store";
 import { storeToRefs } from "pinia";
 import ConfigElement from "./configElement.vue";
 import SelectDropdown from "./SelectDropdown.vue";
@@ -25,10 +25,11 @@ import HexInput from "./HexInput.vue";
 import TristateToggle from "./TristateToggle.vue";
 import { IconQuestion } from "@iconify-prerendered/vue-codicon";
 import { onMounted, ref, computed, watch, nextTick } from "vue";
-import { t } from "../i18n";
+import { t } from "../../../i18n";
 
 const props = defineProps<{
   config: Menu;
+  renderChildren?: boolean;
 }>();
 const store = useMenuconfigStore();
 const { closeAllHelpTimestamp } = storeToRefs(store);
@@ -213,7 +214,7 @@ watch(closeAllHelpTimestamp, () => {
 <template>
   <div
     ref="elementRef"
-    v-if="props.config.isVisible || props.config.isContainerVisible"
+    v-if="props.config.isVisible !== false || props.config.isContainerVisible"
     :class="{ 'config-el': props.config.type !== 'menu' }"
   >
     <SelectDropdown
@@ -330,7 +331,7 @@ watch(closeAllHelpTimestamp, () => {
     </div>
 
     <div 
-      v-if="props.config.type !== 'choice' && props.config.type === 'menu' && !isCollapsed" 
+      v-if="props.renderChildren !== false && props.config.type !== 'choice' && props.config.type === 'menu' && !isCollapsed" 
       :class="{ 'config-children': props.config.shouldIndentChildren, 'menu-children': true }"
     >
       <ConfigElement
@@ -341,7 +342,7 @@ watch(closeAllHelpTimestamp, () => {
     </div>
     
     <div 
-      v-if="props.config.type !== 'choice' && props.config.type !== 'menu' && (!props.config.isMenuconfig || (props.config.isMenuconfig && !isCollapsed))" 
+      v-if="props.renderChildren !== false && props.config.type !== 'choice' && props.config.type !== 'menu' && (!props.config.isMenuconfig || (props.config.isMenuconfig && !isCollapsed))" 
       :class="{ 'config-children': props.config.shouldIndentChildren }"
     >
       <ConfigElement

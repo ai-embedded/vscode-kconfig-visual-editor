@@ -1,0 +1,11 @@
+{
+  "kconfig.debug.enabled": true,
+  "kconfig.debug.source": true,
+  "kconfig.debug.parser": true,
+  "kconfig.log.enabled": true,
+  "kconfig.log.level.debug": true,
+  "kconfig.log.level.info": true,
+  "kconfig.log.level.warn": true,
+  "kconfig.log.level.error": true,
+  "git.ignoreLimitWarning": true
+}

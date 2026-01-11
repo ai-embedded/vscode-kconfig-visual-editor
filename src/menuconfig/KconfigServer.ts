@@ -347,8 +347,7 @@ export class KconfigServer extends EventEmitter {
                     }
                     
                     // Check if visibility actually changed
-                    let visibilityChanged = this.hasVisibilityChanges(menusBeforeVisibilityUpdate, this.kconfigMenus);
-                    // Logger.info(`[UPDATE_VALUE] Visibility actually changed: ${visibilityChanged}`);
+                    const visibilityChanges = this.collectVisibilityChanges(menusBeforeVisibilityUpdate, this.kconfigMenus);
                     
                     // Logger.info(`[UPDATE_VALUE] Emitting valueChanged event with menu: ${menu.name} = ${menu.value}`);
                     this.emit("valueChanged", menu);
@@ -360,18 +359,8 @@ export class KconfigServer extends EventEmitter {
                     }
                     
                     // Only emit visibilityChanged if visibility actually changed
-                    if (visibilityChanged) {
-                        // Logger.info(`[UPDATE_VALUE] Emitting visibilityChanged event with ${this.kconfigMenus.length} menus`);
-                        // Log a few sample menu values in the visibility change
-                        // for (let i = 0; i < Math.min(this.kconfigMenus.length, 3); i++) {
-                        //     const sampleMenu = this.kconfigMenus[i];
-                        //     if (sampleMenu.name) {
-                        //         Logger.info(`[UPDATE_VALUE] Sample menu ${i}: ${sampleMenu.name} = ${sampleMenu.value}`);
-                        //     }
-                        // }
-                        this.emit("visibilityChanged", this.kconfigMenus);
-                    } else {
-                        // Logger.info(`[UPDATE_VALUE] Skipping visibilityChanged event - no actual visibility changes`);
+                    if (visibilityChanges.length > 0) {
+                        this.emit("visibilityChanged", visibilityChanges);
                     }
                     
                     // Logger.info(`[UPDATE_VALUE] ========== UPDATE VALUE END ==========`);
@@ -487,6 +476,26 @@ export class KconfigServer extends EventEmitter {
         };
         
         resetMenuValues(this.kconfigMenus);
+
+        // After resetting values, recompute visibility/read-only states
+        // so that the menu tree reflects the freshly restored defaults.
+        this.visibilityManager.initialize(this.kconfigMenus);
+        this.kconfigMenus = this.visibilityManager.updateValue("", null);
+
+        // Ensure top-level container menus remain visible after recalculation.
+        const forceTopLevelMenusVisible = (menus: Menu[]) => {
+            menus.forEach((menu) => {
+                if (menu.type === menuType.menu && menu.hasPrompt && (!menu.dependsOn || menu.dependsOn.trim() === "")) {
+                    menu.isVisible = true;
+                    (menu as any).isContainerVisible = true;
+                }
+                if (menu.children && menu.children.length > 0) {
+                    forceTopLevelMenusVisible(menu.children);
+                }
+            });
+        };
+        forceTopLevelMenusVisible(this.kconfigMenus);
+
         this.unsavedChanges = true;
         
         // Logger.info("[RESET] Reset to defaults completed");
@@ -636,7 +645,7 @@ export class KconfigServer extends EventEmitter {
     private updateMenuValueByName(name: string, value: string): boolean {
         let found = false;
         
-        const updateValue = (menus: Menu[]) => {
+        const updateValue = (menus: Menu[]): void => {
             for (const menu of menus) {
                 if (menu.name === name) {
                     const _oldValue = menu.value;
@@ -717,7 +726,6 @@ export class KconfigServer extends EventEmitter {
                     }
                     
                     found = true;
-                    return;
                 }
                 if (menu.children) {
                     updateValue(menu.children);
@@ -907,6 +915,111 @@ export class KconfigServer extends EventEmitter {
         return changed;
     }
 
+    private collectVisibilityChanges(oldMenus: Menu[], newMenus: Menu[]): Array<{
+        id: string;
+        isVisible?: boolean;
+        isContainerVisible?: boolean;
+        isReadonly?: boolean;
+        readonlyReason?: string | undefined;
+        selectedBy?: string[] | undefined;
+        autoSelectedValue?: boolean | undefined;
+        autoImpliedValue?: 'y' | 'm' | boolean | undefined;
+        value?: any;
+    }> {
+        const beforeMap = new Map<string, {
+            isVisible?: boolean;
+            isContainerVisible?: boolean;
+            isReadonly?: boolean;
+            readonlyReason?: string;
+            selectedBy?: string[];
+            autoSelectedValue?: boolean;
+            autoImpliedValue?: 'y' | 'm' | boolean;
+            value?: any;
+        }>();
+
+        const collectBefore = (menus: Menu[]) => {
+            for (const menu of menus) {
+                beforeMap.set(menu.id, {
+                    isVisible: menu.isVisible,
+                    isContainerVisible: (menu as any).isContainerVisible,
+                    isReadonly: menu.isReadonly,
+                    readonlyReason: menu.readonlyReason,
+                    selectedBy: menu.selectedBy ? [...menu.selectedBy] : undefined,
+                    autoSelectedValue: menu.autoSelectedValue,
+                    autoImpliedValue: menu.autoImpliedValue,
+                    value: menu.value
+                });
+                if (menu.children && menu.children.length > 0) {
+                    collectBefore(menu.children);
+                }
+            }
+        };
+
+        collectBefore(oldMenus);
+
+        const changes: Array<{
+            id: string;
+            isVisible?: boolean;
+            isContainerVisible?: boolean;
+            isReadonly?: boolean;
+            readonlyReason?: string | undefined;
+            selectedBy?: string[] | undefined;
+            autoSelectedValue?: boolean | undefined;
+            autoImpliedValue?: 'y' | 'm' | boolean | undefined;
+            value?: any;
+        }> = [];
+
+        const compareAfter = (menus: Menu[]) => {
+            for (const menu of menus) {
+                const before = beforeMap.get(menu.id);
+                if (!before) {
+                    changes.push({
+                        id: menu.id,
+                        isVisible: menu.isVisible,
+                        isContainerVisible: (menu as any).isContainerVisible,
+                        isReadonly: menu.isReadonly,
+                        readonlyReason: menu.readonlyReason,
+                        selectedBy: menu.selectedBy ? [...menu.selectedBy] : undefined,
+                        autoSelectedValue: menu.autoSelectedValue,
+                        autoImpliedValue: menu.autoImpliedValue,
+                        value: menu.value
+                    });
+                } else {
+                    const visibilityDiff = before.isVisible !== menu.isVisible;
+                    const containerDiff = before.isContainerVisible !== (menu as any).isContainerVisible;
+                    const readonlyDiff = before.isReadonly !== menu.isReadonly;
+                    const reasonDiff = before.readonlyReason !== menu.readonlyReason;
+                    const selectedByDiff = this.arrayChanged(before.selectedBy, menu.selectedBy);
+                    const autoSelectedDiff = before.autoSelectedValue !== menu.autoSelectedValue;
+                    const autoImpliedDiff = before.autoImpliedValue !== menu.autoImpliedValue;
+                    const valueDiff = before.value !== menu.value && (menu.type === menuType.bool || menu.type === menuType.tristate);
+
+                    if (visibilityDiff || containerDiff || readonlyDiff || reasonDiff || selectedByDiff || autoSelectedDiff || autoImpliedDiff || valueDiff) {
+                        changes.push({
+                            id: menu.id,
+                            isVisible: menu.isVisible,
+                            isContainerVisible: (menu as any).isContainerVisible,
+                            isReadonly: menu.isReadonly,
+                            readonlyReason: menu.readonlyReason,
+                            selectedBy: menu.selectedBy ? [...menu.selectedBy] : undefined,
+                            autoSelectedValue: menu.autoSelectedValue,
+                            autoImpliedValue: menu.autoImpliedValue,
+                            value: valueDiff ? menu.value : undefined
+                        });
+                    }
+                }
+
+                if (menu.children && menu.children.length > 0) {
+                    compareAfter(menu.children);
+                }
+            }
+        };
+
+        compareAfter(newMenus);
+
+        return changes;
+    }
+
     private areMenuValuesEqual(previous: any, current: any, type: menuType): boolean {
         switch (type) {
             case menuType.int:
@@ -917,6 +1030,24 @@ export class KconfigServer extends EventEmitter {
             default:
                 return previous === current;
         }
+    }
+
+    private arrayChanged(a?: string[], b?: string[]): boolean {
+        if (!a && !b) {
+            return false;
+        }
+        if (!a || !b) {
+            return true;
+        }
+        if (a.length !== b.length) {
+            return true;
+        }
+        for (let i = 0; i < a.length; i++) {
+            if (a[i] !== b[i]) {
+                return true;
+            }
+        }
+        return false;
     }
 
     private logCurrentValues(_prefix: string): void {

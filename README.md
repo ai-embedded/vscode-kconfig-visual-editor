@@ -6,6 +6,15 @@ VSCode Kconfig visual editor with syntax highlighting, auto-completion, validati
 
 ![Kconfig Visual Editor](images/kconfig-visual-editor.png)
 
+Supports 2 rendering UI styles, switchable in settings:
+
+1. Classic menuconfig style
+
+![default](images/default.png)
+
+2. Table-style configuration editor
+
+![modern](images/modern.png)
 
 ## Features
 
@@ -139,6 +148,35 @@ This extension contributes the following settings:
 - Click "Save" to save your changes
 - Click "Discard" to discard unsaved changes
 - Click "Reset" to reset all configurations to default values
+
+## Build and Installation
+1. Clone the repository:
+   ```bash
+   git clone https://github.com/ai-embedded/vscode-kconfig-visual-editor.git
+   cd vscode-kconfig-visual-editor
+    ```
+2. Install dependencies and compile:
+   ```bash
+   npm install
+   npm run compile
+   ```
+3. Package the extension:
+   ```bash
+    npx vsce package
+   ```
+
+4. Install the generated `.vsix` file in VSCode:
+   ```bash
+    code --install-extension vscode-kconfig-visual-editor-<version>.vsix
+   ```
+
+## Release Notes
+
+1. 0.1.0 - Initial release with basic Kconfig syntax highlighting and auto-completion
+2. 0.2.0:
+    - Added table-style Kconfig visual editor
+    - Support for RT-Thread environment variable PKGS_DIR
+    - Fixed some Kconfig syntax display errors
 
 ## Testing & Validation
 

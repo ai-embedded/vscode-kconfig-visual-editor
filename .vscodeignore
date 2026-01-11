@@ -79,6 +79,9 @@ node_modules/**
 # 测试文件
 test-kconfig/
 
+# 图片文件（开发使用，不需要打包）
+images/
+
 # 保留必要的编译输出
 !dist/**/*.js
 
