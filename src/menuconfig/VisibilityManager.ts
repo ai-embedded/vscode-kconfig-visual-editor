@@ -71,7 +71,13 @@ export class VisibilityManager {
         // 在可见性计算前，先应用 config 的默认值（含条件）与 choice 的默认值
         // 这样可保证诸如 “default y if RT_USING_SMART” 按语义生效
         this.applyConfigDefaults();
-        this.applyChoiceDefaults();
+        const choiceChanges = new Set<string>();
+        this.applyChoiceDefaults(choiceChanges);
+        if (choiceChanges.size > 0) {
+            choiceChanges.forEach((itemId) => {
+                this.propagateDefaultsFrom(itemId);
+            });
+        }
 
         // 依赖约束会限制符号的最大取值，需在处理 select 之前先行收敛
         this.enforceDependencyBounds();
@@ -563,6 +569,7 @@ export class VisibilityManager {
         
         // Update the value in context
         const menu = this.findMenuById(configId);
+        let choiceSelectionChanges = new Set<string>();
         if (menu) {
             const _oldValue = this.configValues[menu.name];
             
@@ -581,7 +588,7 @@ export class VisibilityManager {
             }
 
             if (menu.type === menuType.choice) {
-                this.applyChoiceSelection(menu, newValue);
+                choiceSelectionChanges = this.applyChoiceSelection(menu, newValue);
             }
 
             this.syncSymbolState(menu);
@@ -607,9 +614,18 @@ export class VisibilityManager {
         const affectedItems = this.findAffectedItems(configId);
         const defaultChanges = this.propagateDefaultsFrom(configId);
         defaultChanges.forEach(itemId => affectedItems.add(itemId));
+        choiceSelectionChanges.forEach((itemId) => {
+            const choiceDefaultChanges = this.propagateDefaultsFrom(itemId);
+            choiceDefaultChanges.forEach(changedId => affectedItems.add(changedId));
+            affectedItems.add(itemId);
+        });
 
         const choiceChanges = new Set<string>();
         this.applyChoiceDefaults(choiceChanges);
+        choiceChanges.forEach((itemId) => {
+            const choiceDefaultChanges = this.propagateDefaultsFrom(itemId);
+            choiceDefaultChanges.forEach(changedId => affectedItems.add(changedId));
+        });
         choiceChanges.forEach(itemId => affectedItems.add(itemId));
 
         this.enforceDependencyBounds();
@@ -641,18 +657,19 @@ export class VisibilityManager {
         return this.allMenus;
     }
 
-    private applyChoiceSelection(menu: Menu, newValue: any): void {
+    private applyChoiceSelection(menu: Menu, newValue: any): Set<string> {
+        const changed = new Set<string>();
         if (!menu.children || menu.children.length === 0) {
-            return;
+            return changed;
         }
         if (typeof newValue !== "string" || newValue.trim().length === 0) {
-            return;
+            return changed;
         }
 
         const selectedName = newValue.trim();
         const selectedChild = menu.children.find(child => child.name === selectedName);
         if (!selectedChild) {
-            return;
+            return changed;
         }
 
         menu.value = selectedName;
@@ -671,6 +688,7 @@ export class VisibilityManager {
                     child.value = nextValue;
                     this.configValues[child.name] = nextValue;
                     this.evaluator.setValue(child.name, nextValue);
+                    changed.add(child.id);
                 }
             }
 
@@ -684,6 +702,8 @@ export class VisibilityManager {
                 this.processSelectStatements(child, isSelected);
             }
         }
+
+        return changed;
     }
 
     /**

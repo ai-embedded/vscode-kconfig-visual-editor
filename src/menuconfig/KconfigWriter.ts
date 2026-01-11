@@ -326,14 +326,48 @@ export class KconfigWriter {
      */
     private shouldWriteToConfig(menu: Menu): boolean {
         if (menu.hasPrompt === false) {
-            Logger.debugWriter(`Skipping ${menu.name} because it has no prompt (hidden symbol)`);
-            return false;
+            return this.shouldWritePromptless(menu);
         }
         const depsSatisfied = this.isDependencySatisfied(menu.dependsOn);
         if (!depsSatisfied) {
             Logger.debugWriter(`Skipping ${menu.name} due to unsatisfied dependencies: ${menu.dependsOn || 'none'}`);
         }
         return depsSatisfied;
+    }
+
+    private shouldWritePromptless(menu: Menu): boolean {
+        switch (menu.type) {
+            case menuType.bool:
+            case menuType.tristate:
+                return this.toTristate(menu.value) !== "n";
+            case menuType.int:
+            case menuType.hex:
+            case menuType.string:
+                return this.hasActiveDefault(menu);
+            default:
+                return false;
+        }
+    }
+
+    private hasActiveDefault(menu: Menu): boolean {
+        if (!menu.defaults || menu.defaults.length === 0) {
+            return false;
+        }
+
+        for (const def of menu.defaults) {
+            if (!def.condition || def.condition.trim().length === 0) {
+                return true;
+            }
+            try {
+                if (this.evaluator.evaluate(def.condition)) {
+                    return true;
+                }
+            } catch (_) {
+                continue;
+            }
+        }
+
+        return false;
     }
 
     private shouldSkipSymbol(menu: Menu): boolean {
