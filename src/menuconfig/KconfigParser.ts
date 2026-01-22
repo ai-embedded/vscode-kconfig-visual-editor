@@ -543,6 +543,33 @@ export class KconfigParser {
                 }
                 menu.dependsOn = node.dep;
             }
+
+            const defBoolMatch = line.match(/^def_bool\s+(.+)$/);
+            if (defBoolMatch) {
+                const defLine = defBoolMatch[1].trim();
+                const ifIndex = defLine.indexOf(' if ');
+                let defaultValue: string;
+                let condition: string | undefined;
+
+                if (ifIndex > -1) {
+                    defaultValue = defLine.substring(0, ifIndex).trim();
+                    condition = defLine.substring(ifIndex + 4).trim();
+                    Logger.debugParser(`[DEFAULT_PARSER] ${_configName} -> def_bool "${defaultValue}" if ${condition}`);
+                } else {
+                    defaultValue = defLine.trim();
+                    Logger.debugParser(`[DEFAULT_PARSER] ${_configName} -> def_bool "${defaultValue}"`);
+                }
+
+                defaultValue = this.expandDefaultValue(defaultValue);
+
+                menu.type = menuType.bool;
+                if (!menu.defaults) {
+                    menu.defaults = [];
+                }
+                menu.defaults.push({ value: defaultValue, condition });
+                i++;
+                continue;
+            }
             
             // Parse default value (support: default VALUE [if CONDITION])
             if (line.startsWith('default ')) {

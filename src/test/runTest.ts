@@ -3,6 +3,7 @@ import { runRtThreadPkgsOverrideTests } from "./rtthreadPkgsOverride.test";
 import { runSourceDuplicateSymbolTests } from "./sourceDuplicateSymbol.test";
 import { runChoiceSelectionTests } from "./choiceSelection.test";
 import { runHiddenSymbolWriteTests } from "./hiddenSymbolWrite.test";
+import { runDefBoolSelectTests } from "./defBoolSelect.test";
 
 async function main(): Promise<void> {
     await runRtThreadPkgsDirTests();
@@ -10,6 +11,7 @@ async function main(): Promise<void> {
     await runSourceDuplicateSymbolTests();
     await runChoiceSelectionTests();
     await runHiddenSymbolWriteTests();
+    await runDefBoolSelectTests();
 }
 
 main().catch((error) => {
