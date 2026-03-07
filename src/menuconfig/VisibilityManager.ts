@@ -34,6 +34,7 @@ export class VisibilityManager {
     private configValues: ConfigContext = {};
     private allMenus: Menu[] = [];
     private menuById: Map<string, Menu> = new Map();
+    private menuParentByChildId: Map<string, string | null> = new Map();
     private menuByName: Map<string, Menu> = new Map();
     private menusByName: Map<string, Menu[]> = new Map();
     private modulesSymbolName: string | null = null;
@@ -42,6 +43,7 @@ export class VisibilityManager {
         isDefaultValue?: boolean;
         autoSelectedValue?: boolean;
     }> = new Map();
+    private lastAffectedMenuIds: Set<string> = new Set();
 
     constructor() {
         this.evaluator = new ConditionEvaluator();
@@ -95,6 +97,7 @@ export class VisibilityManager {
         this.enforceDependencyBounds();
 
         this.updateAllVisibility();
+        this.lastAffectedMenuIds = this.collectAllMenuIds();
         
         // Update readonly states after initialization
         this.updateReadonlyStates();
@@ -103,7 +106,7 @@ export class VisibilityManager {
         const _fdt = this.findMenuByName('RT_USING_FDT');
         const _fdtlib = this.findMenuByName('RT_USING_FDTLIB');
         if (_fdt || _fdtlib) {
-            Logger.info(`[FDT_DEBUG] Initialize: RT_USING_FDT=${_fdt ? _fdt.value : 'N/A'}, RT_USING_FDTLIB=${_fdtlib ? _fdtlib.value : 'N/A'}`);
+            Logger.debugVisibility(() => `[FDT_DEBUG] Initialize: RT_USING_FDT=${_fdt ? _fdt.value : 'N/A'}, RT_USING_FDTLIB=${_fdtlib ? _fdtlib.value : 'N/A'}`);
         }
         
         Logger.debugVisibility(`Initialization complete:`);
@@ -116,7 +119,8 @@ export class VisibilityManager {
      * 依赖约束收敛：当直接依赖为假时，将符号的实际值降为禁用状态。
      * 对 bool 设置为 false，对 tristate 设置为 'n'。
      */
-    private enforceDependencyBounds(): void {
+    private enforceDependencyBounds(changedMenus?: Set<string>): Set<string> {
+        const changed = changedMenus ?? new Set<string>();
         const clamp = (menu: Menu) => {
             if (menu.name && menu.dependsOn && (menu.type === menuType.bool || menu.type === menuType.tristate)) {
                 let depSatisfied = true;
@@ -144,6 +148,7 @@ export class VisibilityManager {
                             menu.value = forcedValue;
                             this.configValues[menu.name] = forcedValue;
                             this.evaluator.setValue(menu.name, forcedValue);
+                            this.markMenuAndPeersChanged(menu, changed);
                         } else {
                             this.configValues[menu.name] = forcedValue;
                         }
@@ -153,6 +158,7 @@ export class VisibilityManager {
                             menu.value = forcedValue;
                             this.configValues[menu.name] = forcedValue;
                             this.evaluator.setValue(menu.name, forcedValue);
+                            this.markMenuAndPeersChanged(menu, changed);
                         } else {
                             this.configValues[menu.name] = forcedValue;
                         }
@@ -168,6 +174,7 @@ export class VisibilityManager {
                             if (menu.name) {
                                 this.configValues[menu.name] = restoredValue;
                                 this.evaluator.setValue(menu.name, restoredValue);
+                                this.markMenuAndPeersChanged(menu, changed);
                             }
                         } else if (menu.name) {
                             this.configValues[menu.name] = restoredValue;
@@ -183,7 +190,10 @@ export class VisibilityManager {
                         // When deps become satisfied again, re-evaluate defaults
                         // for symbols that actually define defaults.
                         if (menu.defaults && menu.defaults.length > 0) {
-                            this.reapplyDefaultsForMenu(menu);
+                            const defaultReapplied = this.reapplyDefaultsForMenu(menu);
+                            if (defaultReapplied) {
+                                this.markMenuAndPeersChanged(menu, changed);
+                            }
                         }
                     }
                 }
@@ -196,6 +206,7 @@ export class VisibilityManager {
 
         this.allMenus.forEach(clamp);
         this.evaluator.updateContext(this.configValues);
+        return changed;
     }
 
     /**
@@ -532,9 +543,10 @@ export class VisibilityManager {
         const changed = new Set<string>();
         const queue: string[] = [configId];
         const visited = new Set<string>();
+        let queueIndex = 0;
 
-        while (queue.length > 0) {
-            const current = queue.shift()!;
+        while (queueIndex < queue.length) {
+            const current = queue[queueIndex++];
             if (visited.has(current)) {
                 continue;
             }
@@ -552,7 +564,7 @@ export class VisibilityManager {
                 }
                 const changedHere = this.reapplyDefaultsForMenu(dependentMenu);
                 if (changedHere) {
-                    changed.add(dependentId);
+                    this.markMenuAndPeersChanged(dependentMenu, changed);
                     queue.push(dependentId);
                 }
             }
@@ -566,17 +578,21 @@ export class VisibilityManager {
      */
     public updateValue(configId: string, newValue: any): Menu[] {
         Logger.debugVisibility(`Updating value for ${configId} to ${newValue}`);
-        
-        // Update the value in context
+
         const menu = this.findMenuById(configId);
+        const valueChangeSeeds = new Set<string>();
+        const needsFullVisibilityRefresh = !configId || !menu;
+
+        // Update the value in context
         let choiceSelectionChanges = new Set<string>();
         if (menu) {
             const _oldValue = this.configValues[menu.name];
-            
+
             menu.value = newValue;
             this.configValues[menu.name] = newValue;
             this.evaluator.setValue(menu.name, newValue);
             menu.isDefaultValue = false;
+            this.markMenuAndPeersChanged(menu, valueChangeSeeds);
             
             // 如果用户手动修改了值，清除自动选择标记
             // 这样可以确保用户手动设置的值不会被自动取消选择逻辑影响
@@ -596,7 +612,7 @@ export class VisibilityManager {
             // Process select statements (must be done before updating readonly states)
             if (menu.type === menuType.bool) {
                 const isEnabled = newValue === true;
-                this.processSelectStatements(menu, isEnabled);
+                this.processSelectStatements(menu, isEnabled, valueChangeSeeds);
             }
             
             Logger.debugVisibility(`Updated ${menu.name} from ${_oldValue} to ${newValue}`);
@@ -605,56 +621,67 @@ export class VisibilityManager {
             if (menu.name === 'RT_USING_FDT') {
                 const fdtlib = this.findMenuByName('RT_USING_FDTLIB');
                 if (fdtlib) {
-                    Logger.info(`[FDT_DEBUG] RT_USING_FDT -> ${newValue}; RT_USING_FDTLIB before visibility update: value=${fdtlib.value}, dependsOn=${fdtlib.dependsOn || 'y'}`);
+                    Logger.debugVisibility(() => `[FDT_DEBUG] RT_USING_FDT -> ${newValue}; RT_USING_FDTLIB before visibility update: value=${fdtlib.value}, dependsOn=${fdtlib.dependsOn || 'y'}`);
                 }
             }
         }
 
-        // Find all items that depend on this configuration
-        const affectedItems = this.findAffectedItems(configId);
         const defaultChanges = this.propagateDefaultsFrom(configId);
-        defaultChanges.forEach(itemId => affectedItems.add(itemId));
+        defaultChanges.forEach(itemId => valueChangeSeeds.add(itemId));
         choiceSelectionChanges.forEach((itemId) => {
             const choiceDefaultChanges = this.propagateDefaultsFrom(itemId);
-            choiceDefaultChanges.forEach(changedId => affectedItems.add(changedId));
-            affectedItems.add(itemId);
+            choiceDefaultChanges.forEach(changedId => valueChangeSeeds.add(changedId));
+            valueChangeSeeds.add(itemId);
         });
 
         const choiceChanges = new Set<string>();
         this.applyChoiceDefaults(choiceChanges);
         choiceChanges.forEach((itemId) => {
             const choiceDefaultChanges = this.propagateDefaultsFrom(itemId);
-            choiceDefaultChanges.forEach(changedId => affectedItems.add(changedId));
+            choiceDefaultChanges.forEach(changedId => valueChangeSeeds.add(changedId));
         });
-        choiceChanges.forEach(itemId => affectedItems.add(itemId));
+        choiceChanges.forEach(itemId => valueChangeSeeds.add(itemId));
 
-        this.enforceDependencyBounds();
+        this.enforceDependencyBounds(valueChangeSeeds);
         const implyChanges = this.applyImplyConstraints();
-        this.enforceDependencyBounds();
-        implyChanges.forEach(itemId => affectedItems.add(itemId));
+        this.enforceDependencyBounds(valueChangeSeeds);
+        implyChanges.forEach(itemId => valueChangeSeeds.add(itemId));
 
-        this.updateTristateAllowedValues();
+        const tristateChanges = this.updateTristateAllowedValues();
+        tristateChanges.forEach(itemId => valueChangeSeeds.add(itemId));
+
+        const visibilityTargets = needsFullVisibilityRefresh
+            ? this.collectAllMenuIds()
+            : this.collectAffectedItemsFromSeeds(valueChangeSeeds);
 
         // Recalculate visibility for affected items
-        for (const itemId of affectedItems) {
+        for (const itemId of visibilityTargets) {
             this.updateItemVisibility(itemId);
         }
 
-        // Choice或依赖可能影响更广泛的项，进行一次全量可见性刷新以保持一致
-        this.updateAllVisibility();
-
         // Update readonly states (must be done after select processing)
-        this.updateReadonlyStates();
+        const readonlyCandidates = needsFullVisibilityRefresh
+            ? this.collectAllMenuIds()
+            : this.collectReadonlyCandidateIds(visibilityTargets);
+        const readonlyChanges = this.updateReadonlyStates(readonlyCandidates);
+        readonlyChanges.forEach((itemId) => visibilityTargets.add(itemId));
 
         Logger.debugVisibility(`Visibility update completed`);
+        this.lastAffectedMenuIds = new Set(visibilityTargets);
 
         // 特例调试：若涉及 FDT 相关配置，更新后再次输出状态
         const maybeFdt = this.findMenuByName('RT_USING_FDT');
         const maybeFdtLib = this.findMenuByName('RT_USING_FDTLIB');
         if (maybeFdt || maybeFdtLib) {
-            Logger.info(`[FDT_DEBUG] After updateValue(): RT_USING_FDT=${maybeFdt ? maybeFdt.value : 'N/A'}, RT_USING_FDTLIB=${maybeFdtLib ? maybeFdtLib.value : 'N/A'}`);
+            Logger.debugVisibility(() => `[FDT_DEBUG] After updateValue(): RT_USING_FDT=${maybeFdt ? maybeFdt.value : 'N/A'}, RT_USING_FDTLIB=${maybeFdtLib ? maybeFdtLib.value : 'N/A'}`);
         }
         return this.allMenus;
+    }
+
+    public consumeLastAffectedMenuIds(): Set<string> {
+        const affected = this.lastAffectedMenuIds;
+        this.lastAffectedMenuIds = new Set<string>();
+        return affected;
     }
 
     private applyChoiceSelection(menu: Menu, newValue: any): Set<string> {
@@ -688,7 +715,7 @@ export class VisibilityManager {
                     child.value = nextValue;
                     this.configValues[child.name] = nextValue;
                     this.evaluator.setValue(child.name, nextValue);
-                    changed.add(child.id);
+                    this.markMenuAndPeersChanged(child, changed);
                 }
             }
 
@@ -699,7 +726,7 @@ export class VisibilityManager {
             this.syncSymbolState(child);
 
             if (child.type === menuType.bool) {
-                this.processSelectStatements(child, isSelected);
+                this.processSelectStatements(child, isSelected, changed);
             }
         }
 
@@ -878,18 +905,24 @@ export class VisibilityManager {
 
     private rebuildIndexes(menus: Menu[]): void {
         this.menuById.clear();
+        this.menuParentByChildId.clear();
         this.menuByName.clear();
         this.menusByName.clear();
 
-        const stack: Menu[] = [...menus];
+        const stack: Array<{ menu: Menu; parentId: string | null }> = menus.map((menu) => ({
+            menu,
+            parentId: null,
+        }));
         while (stack.length > 0) {
-            const menu = stack.pop();
-            if (!menu) {
+            const current = stack.pop();
+            if (!current || !current.menu) {
                 continue;
             }
+            const menu = current.menu;
 
             if (menu.id) {
                 this.menuById.set(menu.id, menu);
+                this.menuParentByChildId.set(menu.id, current.parentId);
             }
 
             if (menu.name) {
@@ -903,7 +936,10 @@ export class VisibilityManager {
 
             if (menu.children && menu.children.length > 0) {
                 for (let i = 0; i < menu.children.length; i++) {
-                    stack.push(menu.children[i]);
+                    stack.push({
+                        menu: menu.children[i],
+                        parentId: menu.id,
+                    });
                 }
             }
         }
@@ -1184,7 +1220,8 @@ export class VisibilityManager {
         return changedMenus;
     }
 
-    private updateTristateAllowedValues(): void {
+    private updateTristateAllowedValues(): Set<string> {
+        const changed = new Set<string>();
         const modulesEnabled = this.isModulesEnabled();
 
         const determineAllowed = (menu: Menu): Array<'n' | 'm' | 'y'> | undefined => {
@@ -1240,6 +1277,7 @@ export class VisibilityManager {
                             if (menu.value !== replacement) {
                                 Logger.debugVisibility(`[MODULES] Adjusting ${menu.name} from ${menu.value} -> ${replacement} due to modules constraints`);
                                 menu.value = replacement;
+                                this.markMenuAndPeersChanged(menu, changed);
                             }
                             this.configValues[menu.name] = replacement;
                             this.evaluator.setValue(menu.name, replacement);
@@ -1259,6 +1297,7 @@ export class VisibilityManager {
         };
 
         apply(this.allMenus);
+        return changed;
     }
 
     private isModulesEnabled(): boolean {
@@ -1294,35 +1333,136 @@ export class VisibilityManager {
     }
 
     /**
-     * Find all items that are affected by a configuration change
+     * Utility helpers for incremental visibility propagation.
      */
-    private findAffectedItems(configId: string): Set<string> {
-        const affected = new Set<string>();
-        const toProcess = new Set<string>([configId]);
-        const processed = new Set<string>();
+    private collectAllMenuIds(): Set<string> {
+        return new Set(this.menuById.keys());
+    }
 
-        while (toProcess.size > 0) {
-            const currentId = toProcess.values().next().value;
-            toProcess.delete(currentId);
-            
-            if (processed.has(currentId)) {
+    private markMenuAndPeersChanged(menu: Menu | null, changed: Set<string>): void {
+        if (!menu) {
+            return;
+        }
+        if (menu.id) {
+            changed.add(menu.id);
+        }
+        if (!menu.name) {
+            return;
+        }
+        const peers = this.getMenusByName(menu.name);
+        for (const peer of peers) {
+            if (peer.id) {
+                changed.add(peer.id);
+            }
+        }
+    }
+
+    private collectAffectedItemsFromSeeds(seedIds: Iterable<string>): Set<string> {
+        const affected = new Set<string>();
+        const queue: string[] = [];
+        let queueIndex = 0;
+
+        const enqueue = (itemId?: string) => {
+            if (!itemId || affected.has(itemId)) {
+                return;
+            }
+            affected.add(itemId);
+            queue.push(itemId);
+        };
+
+        for (const seedId of seedIds) {
+            enqueue(seedId);
+        }
+
+        while (queueIndex < queue.length) {
+            const currentId = queue[queueIndex++];
+            if (!currentId) {
                 continue;
             }
-            processed.add(currentId);
 
             const depInfo = this.dependencies.get(currentId);
             if (depInfo) {
-                // Add all dependents of this item
-                depInfo.dependents.forEach(dependent => {
-                    if (!processed.has(dependent)) {
-                        affected.add(dependent);
-                        toProcess.add(dependent);
-                    }
-                });
+                depInfo.dependents.forEach((dependentId) => enqueue(dependentId));
+            }
+
+            const currentMenu = this.findMenuById(currentId);
+            if (currentMenu?.name) {
+                const peers = this.getMenusByName(currentMenu.name);
+                for (const peer of peers) {
+                    enqueue(peer.id);
+                }
+            }
+
+            let ancestorId = this.menuParentByChildId.get(currentId) ?? null;
+            while (ancestorId) {
+                enqueue(ancestorId);
+                ancestorId = this.menuParentByChildId.get(ancestorId) ?? null;
             }
         }
 
         return affected;
+    }
+
+    private collectReadonlyCandidateIds(baseIds: Iterable<string>): Set<string> {
+        const candidates = new Set<string>();
+        const queue: string[] = [];
+        let queueIndex = 0;
+
+        const enqueueById = (id?: string) => {
+            if (!id || candidates.has(id)) {
+                return;
+            }
+            candidates.add(id);
+            queue.push(id);
+        };
+
+        const enqueueMenuAndPeers = (menu: Menu | null) => {
+            if (!menu) {
+                return;
+            }
+            enqueueById(menu.id);
+            if (menu.name) {
+                const peers = this.getMenusByName(menu.name);
+                for (const peer of peers) {
+                    enqueueById(peer.id);
+                }
+            }
+        };
+
+        for (const id of baseIds) {
+            enqueueById(id);
+        }
+
+        while (queueIndex < queue.length) {
+            const currentId = queue[queueIndex++];
+            if (!currentId) {
+                continue;
+            }
+            const currentMenu = this.findMenuById(currentId);
+            if (!currentMenu) {
+                continue;
+            }
+
+            if (currentMenu.select && currentMenu.select.length > 0) {
+                for (const targetName of currentMenu.select) {
+                    const targets = this.getMenusByName(targetName);
+                    for (const target of targets) {
+                        enqueueMenuAndPeers(target);
+                    }
+                }
+            }
+
+            if (currentMenu.selectedBy && currentMenu.selectedBy.length > 0) {
+                for (const selectorName of currentMenu.selectedBy) {
+                    const selectors = this.getMenusByName(selectorName);
+                    for (const selectorMenu of selectors) {
+                        enqueueMenuAndPeers(selectorMenu);
+                    }
+                }
+            }
+        }
+
+        return candidates;
     }
 
     /**
@@ -1510,7 +1650,7 @@ export class VisibilityManager {
     /**
      * Process select statements when a config is enabled or disabled
      */
-    private processSelectStatements(menu: Menu, isEnabled: boolean): void {
+    private processSelectStatements(menu: Menu, isEnabled: boolean, changed?: Set<string>): void {
         // 依据 Kconfiglib 语义：仅当选择器自身值为 true 且直接依赖满足时，select 才生效
         const depsOk = !menu.dependsOn || this.safeEval(menu.dependsOn);
         const effectivelyEnabled = isEnabled && depsOk && menu.value === true && menu.type === menuType.bool;
@@ -1545,11 +1685,11 @@ export class VisibilityManager {
                 if (effectivelyEnabled) {
                     // 启用选择器时的处理
                     this.addSelectRelationship(menu, targetMenu);
-                    this.autoSelectTarget(targetMenu, menu);
+                    this.autoSelectTarget(targetMenu, menu, changed);
                 } else {
                     // 禁用选择器时的处理
                     this.removeSelectRelationship(menu, targetMenu);
-                    this.checkAutoDeselectTarget(targetMenu, menu);
+                    this.checkAutoDeselectTarget(targetMenu, menu, changed);
                 }
                 Logger.debugSelect(`Target menu ${targetMenu.name} updated selectedBy: ${targetMenu.selectedBy?.join(', ') || 'none'}`);
             } else {
@@ -1599,7 +1739,7 @@ export class VisibilityManager {
     /**
      * Auto-select target when selector is enabled
      */
-    private autoSelectTarget(target: Menu, selector: Menu): void {
+    private autoSelectTarget(target: Menu, selector: Menu, changed?: Set<string>): void {
         if (target.type === menuType.bool) {
             Logger.debugSelect(`[SELECT_PROCESSOR] Auto-selecting ${target.name} due to ${selector.name}`);
 
@@ -1608,12 +1748,17 @@ export class VisibilityManager {
                 target.autoSelectedPreviousWasDefault = target.isDefaultValue;
             }
 
+            const valueChanged = target.value !== true;
+
             // 无论当前值如何，都确保目标被选中并标记为自动选择
             target.value = true;
             target.autoSelectedValue = true; // 标记为自动选择的值
             target.isDefaultValue = false;
             this.configValues[target.name] = true;
             this.evaluator.setValue(target.name, true);
+            if (valueChanged && changed) {
+                this.markMenuAndPeersChanged(target, changed);
+            }
             this.syncSymbolState(target);
 
             Logger.debugSelect(`[SELECT_PROCESSOR] ${target.name} set to true and marked as auto-selected`);
@@ -1621,7 +1766,7 @@ export class VisibilityManager {
             // 递归处理新选择项的 select 语句
             if (target.select && target.select.length > 0) {
                 Logger.debugSelect(`[SELECT_PROCESSOR] Processing ${target.name}'s select statements recursively`);
-                this.processSelectStatements(target, true);
+                this.processSelectStatements(target, true, changed);
             }
         } else {
             Logger.debugSelect(`[SELECT_PROCESSOR] Skipping auto-select for ${target.name} (not bool type, is ${target.type})`);
@@ -1631,7 +1776,7 @@ export class VisibilityManager {
     /**
      * Check if target should be auto-deselected when selector is disabled
      */
-    private checkAutoDeselectTarget(target: Menu, selector: Menu): void {
+    private checkAutoDeselectTarget(target: Menu, selector: Menu, changed?: Set<string>): void {
         // 检查是否还有其他活跃的选择器
         const hasOtherActiveSelectors = target.selectedBy && target.selectedBy.some(selectorName => {
             if (selectorName === selector.name) return false;
@@ -1648,6 +1793,7 @@ export class VisibilityManager {
 
             Logger.debugSelect(`[SELECT_PROCESSOR] Restoring ${target.name} to ${JSON.stringify(restoredValue)} with fallback ${JSON.stringify(fallbackValue)}`);
 
+            const valueChanged = !this.areMenuValuesEqual(target.value, restoredValue, target.type);
             target.value = restoredValue;
             target.autoSelectedValue = undefined; // 清除自动选择标记
             target.autoSelectedPreviousValue = undefined;
@@ -1663,11 +1809,14 @@ export class VisibilityManager {
 
             this.configValues[target.name] = restoredValue;
             this.evaluator.setValue(target.name, restoredValue);
+            if (valueChanged && changed) {
+                this.markMenuAndPeersChanged(target, changed);
+            }
             
             // 递归处理被取消选择项的 select 语句或恢复用户选择
             if (target.select && target.select.length > 0 && target.type === menuType.bool) {
                 const isEnabledAfterRestore = restoredValue === true;
-                this.processSelectStatements(target, isEnabledAfterRestore);
+                this.processSelectStatements(target, isEnabledAfterRestore, changed);
             }
             this.syncSymbolState(target);
         } else if (!hasOtherActiveSelectors && target.value === true) {
@@ -1679,18 +1828,21 @@ export class VisibilityManager {
     /**
      * Update readonly states for all menu items based on selectedBy relationships
      */
-    private updateReadonlyStates(): void {
+    private updateReadonlyStates(candidateIds?: Set<string>): Set<string> {
         Logger.debugVisibility('[READONLY_PROCESSOR] Starting readonly states update...');
 
+        const changed = new Set<string>();
         let totalProcessed = 0;
         let readonlyCount = 0;
         let selectedByCount = 0;
 
-        const updateReadonly = (menu: Menu) => {
+        const processMenu = (menu: Menu) => {
             totalProcessed++;
 
             // Reset readonly state
             const wasReadonly = menu.isReadonly;
+            const previousReadonlyReason = menu.readonlyReason;
+            const previousValue = menu.value;
             menu.isReadonly = false;
             menu.readonlyReason = undefined;
 
@@ -1748,17 +1900,28 @@ export class VisibilityManager {
             }
 
             // Log state changes
-            if (wasReadonly !== menu.isReadonly) {
+            if (
+                wasReadonly !== menu.isReadonly ||
+                previousReadonlyReason !== menu.readonlyReason ||
+                !this.areMenuValuesEqual(previousValue, menu.value, menu.type)
+            ) {
                 Logger.debugVisibility(`[READONLY_PROCESSOR] State changed for ${menu.name}: ${wasReadonly} → ${menu.isReadonly}`);
-            }
-
-            // Process children recursively
-            if (menu.children) {
-                menu.children.forEach(updateReadonly);
+                this.markMenuAndPeersChanged(menu, changed);
             }
         };
 
-        this.allMenus.forEach(updateReadonly);
+        if (!candidateIds) {
+            this.menuById.forEach((menu) => {
+                processMenu(menu);
+            });
+        } else {
+            candidateIds.forEach((id) => {
+                const menu = this.findMenuById(id);
+                if (menu) {
+                    processMenu(menu);
+                }
+            });
+        }
 
         Logger.debugVisibility(`[READONLY_PROCESSOR] Readonly states update completed:`);
         Logger.debugVisibility(`[READONLY_PROCESSOR]   - Total menus processed: ${totalProcessed}`);
@@ -1784,6 +1947,8 @@ export class VisibilityManager {
             Logger.debugVisibility(`[READONLY_PROCESSOR]   - value: ${hookList.value}`);
             Logger.debugVisibility(`[READONLY_PROCESSOR]   - readonlyReason: ${hookList.readonlyReason}`);
         }
+
+        return changed;
     }
 
     /**

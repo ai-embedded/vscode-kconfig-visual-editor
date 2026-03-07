@@ -22,12 +22,6 @@
   "config.log.level": "设置日志级别（debug、info、warning、error）",
   "config.log.outputChannel": "在 VS Code 输出面板中显示日志",
 
-  "config.smartLazyLoad.title": "智能延迟加载",
-  "config.smartLazyLoad.enabled": "启用智能延迟加载以提升大型 Kconfig 文件的性能",
-  "config.smartLazyLoad.threshold": "触发延迟加载的菜单项数量阈值",
-  "config.smartLazyLoad.maxDepth": "初始菜单树展开的最大深度",
-  "config.smartLazyLoad.cacheSize": "已加载菜单项的缓存容量",
-
   "config.validation.title": "验证",
   "config.validation.checkSymbolReferences": "检查符号引用的有效性",
   "config.validation.checkDependencies": "验证配置依赖关系",

@@ -13,22 +13,36 @@
 import * as path from "path";
 import * as vscode from "vscode";
 import { Menu, menuType } from "./Menu";
-import { KconfigMenuLoader } from "./KconfigMenuLoader";
 import { KconfigServer } from "./KconfigServer";
+import { MenuChunkTask, groupChunkTasksForBatches, splitMenusForChunkedTransfer } from "./MenuTransferSerializer";
+import { runUnsavedCloseFlow } from "./unsavedCloseFlow";
 import { Logger } from "../logger/logger";
 import { t } from "../i18n";
 
 type WebviewColorTheme = "light" | "dark";
 
+interface InitialTransferStartupMeta {
+  sessionId: number;
+  panelAgeMs: number;
+  serverInitMs: number;
+  getMenusMs: number;
+  serializeMs: number;
+  totalChunks: number;
+  totalTaskBatches: number;
+}
+
 export class MenuconfigPanel {
   public static currentPanel: MenuconfigPanel | undefined;
+  private static panelSeq = 0;
   private _disposed = false;
   private static readonly supportedThemes = ["default", "modern"] as const;
+  private static readonly initialPayloadChunkSize = 120;
+  private static readonly initialPayloadTaskBatchSize = 32;
+  private static readonly startupSlowThresholdMs = 1500;
 
   public static createOrShow(
     extensionUri: vscode.Uri,
     curWorkspaceFolder: vscode.Uri,
-    initialValues: Menu[],
     targetFile?: vscode.Uri
   ) {
     const column = vscode.window.activeTextEditor
@@ -52,7 +66,6 @@ export class MenuconfigPanel {
       extensionUri,
       column || vscode.ViewColumn.One,
       curWorkspaceFolder,
-      initialValues,
       targetFile
     );
   }
@@ -65,20 +78,29 @@ export class MenuconfigPanel {
   private readonly curWorkspaceFolder: vscode.Uri;
   private readonly panel: vscode.WebviewPanel;
   private disposables: vscode.Disposable[] = [];
-  private menuLoader: KconfigMenuLoader;
   private kconfigServer: KconfigServer | null = null;
   private targetFile?: vscode.Uri;
+  private kconfigServerReady = false;
+  private pendingInitValuesRequest = false;
+  private initialPayloadTransferToken = 0;
+  private lastInitialValuesSentAt = 0;
+  private initializationToken = 0;
+  private readonly panelId: number;
+  private readonly panelCreatedAt = Date.now();
+  private kconfigServerInitDurationMs = 0;
+  private initialTransferSessionSeq = 0;
+  private disposeFlowStarted = false;
 
   private constructor(
     extensionUri: vscode.Uri,
     column: vscode.ViewColumn,
     curWorkspaceFolder: vscode.Uri,
-    initialValues: Menu[],
     targetFile?: vscode.Uri
   ) {
+    this.panelId = ++MenuconfigPanel.panelSeq;
     this.curWorkspaceFolder = curWorkspaceFolder;
     this.targetFile = targetFile;
-    this.menuLoader = new KconfigMenuLoader(curWorkspaceFolder, targetFile);
+    this.trace(`constructor start target=${targetFile?.fsPath || "(active)"}`);
 
     const menuconfigPanelTitle = targetFile 
       ? `Kconfig Visual Editor - ${path.basename(targetFile.fsPath)}`
@@ -104,6 +126,7 @@ export class MenuconfigPanel {
     const themeKey = this.resolveUiTheme();
     const colorThemeKind = this.mapColorThemeKind(vscode.window.activeColorTheme.kind);
     this.panel.webview.html = this.createMenuconfigHtml(scriptPath, themeKey, colorThemeKind);
+    this.trace("webview html assigned");
     this.registerColorThemeSync();
 
     const menuconfigViewDict = {
@@ -117,40 +140,8 @@ export class MenuconfigPanel {
     });
 
     this.panel.onDidDispose(
-      async () => {
-        // 标记为已disposed
-        this._disposed = true;
-        
-        // Check for unsaved changes before closing
-        if (this.kconfigServer && this.kconfigServer.hasUnsavedChanges()) {
-          const yesButton: vscode.MessageItem = {
-            title: t('close.saveButton'),
-            isCloseAffordance: false
-          };
-          const noButton: vscode.MessageItem = {
-            title: t('close.noSaveButton'),
-            isCloseAffordance: true  // 这将替代默认的Cancel按钮
-          };
-          
-          const result = await vscode.window.showWarningMessage(
-            t('close.unsavedMessage'),
-            { modal: true },
-            yesButton,
-            noButton
-          );
-          
-          if (result === yesButton) {
-            try {
-              await this.kconfigServer.saveConfig();
-              // 使用状态栏消息，3秒后自动关闭
-              vscode.window.setStatusBarMessage(`$(check) ${t('close.saveSuccess')}`, 3000);
-            } catch (error) {
-              vscode.window.showErrorMessage(t('close.saveFailed'));
-            }
-          }
-          // No 按钮或关闭对话框时直接继续关闭流程
-        }
-        this.dispose();
+      () => {
+        void this.handlePanelDisposed();
       },
       null,
       this.disposables
@@ -166,7 +157,7 @@ export class MenuconfigPanel {
           
           if (this.kconfigServer) {
             this.kconfigServer.updateValue(updatedMenu);
-            // Logger.info(`[PANEL] Sent visibility_updated with ${updatedMenus.length} menus after updateValue`);
+            // Logger.info(`[PANEL] updateValue processed and delta events dispatched`);
           } else {
             Logger.error(`[PANEL] KconfigServer not available for updateValue`);
           }
@@ -207,119 +198,13 @@ export class MenuconfigPanel {
           }
           break;
         case "requestInitValues": {
-          //console.log("[PANEL] requestInitValues received");
-          // Load initial values from Kconfig files
-          const loadedMenus = this.kconfigServer ? this.kconfigServer.getMenus() : await this.menuLoader.loadKconfigMenus();
-          //console.log(`[PANEL] Loaded ${loadedMenus.length} menus`);
-          if (loadedMenus.length > 0) {
-            //console.log(`[PANEL] First menu: name=${loadedMenus[0].name}, title=${loadedMenus[0].title}, children=${loadedMenus[0].children?.length || 0}`);
-            if (loadedMenus[0].children && loadedMenus[0].children.length > 0) {
-              //console.log(`[PANEL] First child: name=${loadedMenus[0].children[0].name}, title=${loadedMenus[0].children[0].title}`);
-            }
+          this.trace(`requestInitValues received ready=${this.kconfigServerReady} hasServer=${!!this.kconfigServer}`);
+          if (!this.kconfigServerReady || !this.kconfigServer) {
+            this.pendingInitValuesRequest = true;
+            Logger.info("[PANEL] requestInitValues received before KconfigServer is ready; request queued.");
+            break;
           }
-          
-          // Set default collapsed state for all menus
-          const setDefaultCollapsedState = (menus: Menu[]) => {
-            menus.forEach(menu => {
-              if (menu.type === menuType.menu) {
-                menu.isCollapsed = true; // Default to collapsed
-              }
-              if (menu.children && menu.children.length > 0) {
-                setDefaultCollapsedState(menu.children);
-              }
-            });
-          };
-          setDefaultCollapsedState(loadedMenus);
-          
-          // Log menus before sending
-          const logMenus = (menus: Menu[], depth = 0) => {
-            const _indent = "  ".repeat(depth);
-            menus.forEach(menu => {
-              if (menu.type !== menuType.menu) {
-                // Logger.info(`${indent}[MENUCONFIG_PANEL] Config: ${menu.name}, type: ${menu.type}, value: ${menu.value}, isVisible: ${menu.isVisible}`);
-              }
-              if (menu.children && menu.children.length > 0) {
-                logMenus(menu.children, depth + 1);
-              }
-            });
-          };
-          // Logger.info("[MENUCONFIG_PANEL] Sending initial menus to webview:");
-          logMenus(loadedMenus);
-
-          // Debug: Check critical configs before sending
-          const findMenuByName = (menus: Menu[], name: string): Menu | null => {
-            for (const menu of menus) {
-              if (menu.name === name) return menu;
-              if (menu.children) {
-                const found = findMenuByName(menu.children, name);
-                if (found) return found;
-              }
-            }
-            return null;
-          };
-
-          const dfsUsingPosix = findMenuByName(loadedMenus, 'DFS_USING_POSIX');
-          const rtUsingPosixFs = findMenuByName(loadedMenus, 'RT_USING_POSIX_FS');
-
-          Logger.info(`[MENUCONFIG_PANEL] Before sending to webview:`);
-          if (dfsUsingPosix) {
-            Logger.info(`[MENUCONFIG_PANEL]   DFS_USING_POSIX:`);
-            Logger.info(`[MENUCONFIG_PANEL]     - value: ${dfsUsingPosix.value}`);
-            Logger.info(`[MENUCONFIG_PANEL]     - type: ${dfsUsingPosix.type}`);
-            Logger.info(`[MENUCONFIG_PANEL]     - selectedBy: [${dfsUsingPosix.selectedBy?.join(', ') || 'none'}]`);
-            Logger.info(`[MENUCONFIG_PANEL]     - isReadonly: ${dfsUsingPosix.isReadonly}`);
-            Logger.info(`[MENUCONFIG_PANEL]     - readonlyReason: ${dfsUsingPosix.readonlyReason || 'none'}`);
-            Logger.info(`[MENUCONFIG_PANEL]     - isVisible: ${dfsUsingPosix.isVisible}`);
-          } else {
-            Logger.info(`[MENUCONFIG_PANEL]   DFS_USING_POSIX: NOT FOUND in menu tree`);
-          }
-
-          if (rtUsingPosixFs) {
-            Logger.info(`[MENUCONFIG_PANEL]   RT_USING_POSIX_FS:`);
-            Logger.info(`[MENUCONFIG_PANEL]     - value: ${rtUsingPosixFs.value}`);
-            Logger.info(`[MENUCONFIG_PANEL]     - type: ${rtUsingPosixFs.type}`);
-            Logger.info(`[MENUCONFIG_PANEL]     - select: [${rtUsingPosixFs.select?.join(', ') || 'none'}]`);
-            Logger.info(`[MENUCONFIG_PANEL]     - isVisible: ${rtUsingPosixFs.isVisible}`);
-          } else {
-            Logger.info(`[MENUCONFIG_PANEL]   RT_USING_POSIX_FS: NOT FOUND in menu tree`);
-          }
-          
-          // 获取调试配置并发送给前端
-          const debugConfig = {
-            enabled: vscode.workspace.getConfiguration('kconfig.debug').get('enabled', false),
-            menu: vscode.workspace.getConfiguration('kconfig.debug').get('menu', false)
-          };
-
-          // Add error handling and data size check for large menu structures
-          try {
-            const menuData = {
-              command: "load_initial_values",
-              menus: loadedMenus,
-              debugConfig: debugConfig
-            };
-            
-            // Check data size before sending
-            const dataString = JSON.stringify(menuData);
-            const dataSizeInMB = dataString.length / (1024 * 1024);
-            
-            if (dataSizeInMB > 50) { // If data is larger than 50MB
-              Logger.warn(`Large menu data detected: ${dataSizeInMB.toFixed(2)}MB. This may cause communication issues.`);
-              
-              // Optimize data by removing debug properties and compressing
-              const optimizedMenus = this.optimizeMenusForTransfer(loadedMenus);
-              const optimizedData = {
-                command: "load_initial_values",
-                menus: optimizedMenus,
-              };
-              
-              this.panel.webview.postMessage(optimizedData);
-            } else {
-              this.panel.webview.postMessage(menuData);
-            }
-          } catch (error) {
-            Logger.error("Failed to send menu data to webview", error as Error);
-            vscode.window.showErrorMessage("Failed to load configuration data. The configuration may be too complex.");
-          }
+          this.sendInitialValues();
           break;
         }
         case "setDefault":
@@ -348,24 +233,23 @@ export class MenuconfigPanel {
             });
           }
           break;
-        case "loadVirtualNode": {
-          // Handle virtual node lazy loading
-          const nodeId = message.nodeId;
-          Logger.info(`[PANEL] Received loadVirtualNode request for node: ${nodeId}`);
-//////console.log(`📡 [PANEL_DEBUG] 收到懒加载请求: ${nodeId}`);
-          
-          if (this.kconfigServer) {
-            try {
-              const updatedMenus = await this.kconfigServer.loadVirtualNodeContent(nodeId);
-              this.safelySendMenuData("virtual_node_loaded", updatedMenus, { nodeId });
-              Logger.info(`[PANEL] Successfully loaded virtual node: ${nodeId}`);
-            } catch (error) {
-              Logger.error(`[PANEL] Failed to load virtual node: ${nodeId}`, error as Error);
-//////console.log(`💥 [PANEL_DEBUG] 懒加载失败: ${error}`);
-            }
-          } else {
-            Logger.warn(`[PANEL] KconfigServer not available for loadVirtualNode`);
-//////console.log(`⚠️ [PANEL_DEBUG] KconfigServer 不可用`);
+        case "requestMenuDetail": {
+          if (!this.kconfigServer) {
+            break;
+          }
+          const requestedId = typeof message.id === "string" ? message.id : "";
+          if (!requestedId) {
+            break;
+          }
+          try {
+            const detail = this.kconfigServer.getMenuDetailById(requestedId);
+            this.panel.webview.postMessage({
+              command: "menu_detail",
+              id: requestedId,
+              detail,
+            });
+          } catch (error) {
+            Logger.error("Failed to send menu detail", error as Error);
           }
           break;
         }
@@ -383,40 +267,6 @@ export class MenuconfigPanel {
             }
           }
           break;
-        case "expandPackageNode": {
-          // Handle lazy loading of package nodes
-          const nodeId = message.nodeId;
-          if (!nodeId) {
-            Logger.error(`[PANEL] expandPackageNode message missing nodeId`);
-            break;
-          }
-          
-          Logger.info(`[PANEL] Received expandPackageNode request for: ${nodeId}`);
-          
-          try {
-            // Use menu loader to handle lazy loading
-            const children = await this.menuLoader.expandPackageNode(nodeId);
-            if (children && children.length > 0) {
-              Logger.info(`[PANEL] Loaded ${children.length} items for node: ${nodeId}`);
-              this.safelySendMenuData("packageNodeExpanded", children, { nodeId });
-            } else {
-              Logger.warn(`[PANEL] No content loaded for node: ${nodeId}`);
-              this.panel.webview.postMessage({
-                command: "packageNodeExpandFailed",
-                nodeId: nodeId,
-                error: "No content found"
-              });
-            }
-          } catch (error) {
-            Logger.error(`[PANEL] Failed to expand package node ${nodeId}`, error as Error);
-            this.panel.webview.postMessage({
-              command: "packageNodeExpandFailed", 
-              nodeId: nodeId,
-              error: error instanceof Error ? error.message : String(error)
-            });
-          }
-          break;
-        }
         default:
           Logger.error(`Unrecognized command: ${message.command}`);
           break;
@@ -424,49 +274,87 @@ export class MenuconfigPanel {
     });
 
     // Initialize KconfigServer if Kconfig file exists
-    this.initializeKconfigServer().then(() => {
-      // Load initial values
-      setTimeout(() => {
-        const menus = this.kconfigServer ? this.kconfigServer.getMenus() : initialValues;
-        
-        // Set default collapsed state for all menus
-        const setDefaultCollapsedState = (menuList: Menu[]) => {
-          menuList.forEach(menu => {
-            if (menu.type === menuType.menu) {
-              menu.isCollapsed = true; // Default to collapsed
-            }
-            if (menu.children && menu.children.length > 0) {
-              setDefaultCollapsedState(menu.children);
-            }
-          });
-        };
-        setDefaultCollapsedState(menus);
-        
-        this.safelySendMenuData("load_initial_values", menus);
-      }, 100);
-    });
+    this.initializeKconfigServer();
   }
 
   public dispose() {
     if (this._disposed) {
-      return; // 避免重复dispose
+      return;
     }
-    
+    this.trace("dispose requested");
+    try {
+      this.panel.dispose();
+    } catch (error) {
+      Logger.error("Error disposing panel", error as Error);
+      this.disposeInternal(true);
+    }
+  }
+
+  private async handlePanelDisposed(): Promise<void> {
+    if (this.disposeFlowStarted) {
+      return;
+    }
+    this.disposeFlowStarted = true;
+    this.trace("onDidDispose fired");
+
+    try {
+      await runUnsavedCloseFlow({
+        hasUnsavedChanges: this.kconfigServer?.hasUnsavedChanges() ?? false,
+        saveConfig: async () => {
+          if (!this.kconfigServer) {
+            return;
+          }
+          await this.kconfigServer.saveConfig();
+        },
+        showWarningMessage: async (message, options, ...items) =>
+          vscode.window.showWarningMessage(message, options, ...items),
+        showErrorMessage: (message) => {
+          vscode.window.showErrorMessage(message);
+        },
+        setStatusBarMessage: (message, hideAfterTimeout) => {
+          if (typeof hideAfterTimeout === "number") {
+            vscode.window.setStatusBarMessage(message, hideAfterTimeout);
+            return;
+          }
+          vscode.window.setStatusBarMessage(message);
+        },
+        text: {
+          unsavedMessage: t("close.unsavedMessage"),
+          saveButton: t("close.saveButton"),
+          noSaveButton: t("close.noSaveButton"),
+          saveSuccess: t("close.saveSuccess"),
+          saveFailed: t("close.saveFailed"),
+        },
+      });
+    } finally {
+      this.disposeInternal(false);
+    }
+  }
+
+  private disposeInternal(disposePanel: boolean): void {
+    if (this._disposed) {
+      return;
+    }
+
+    this.trace(`disposeInternal disposePanel=${disposePanel}`);
     this._disposed = true;
+    this.initializationToken += 1;
+    this.initialPayloadTransferToken += 1;
     MenuconfigPanel.currentPanel = undefined;
-    
+
     if (this.kconfigServer) {
       this.kconfigServer.dispose();
       this.kconfigServer = null;
     }
-    
-    // 安全地dispose panel
-    try {
-      this.panel.dispose();
-    } catch (error) {
-      Logger.error('Error disposing panel', error as Error);
+
+    if (disposePanel) {
+      try {
+        this.panel.dispose();
+      } catch (error) {
+        Logger.error('Error disposing panel', error as Error);
+      }
     }
-    
+
     while (this.disposables.length) {
       const disposable = this.disposables.pop();
       if (disposable) {
@@ -492,7 +380,10 @@ export class MenuconfigPanel {
   }
   
   private async initializeKconfigServer(): Promise<void> {
+    const initToken = ++this.initializationToken;
+    const initStartedAt = Date.now();
     try {
+      this.trace("initializeKconfigServer start");
       let kconfigFile: string | undefined;
       
       // If a specific target file was provided, use it
@@ -511,24 +402,20 @@ export class MenuconfigPanel {
       }
       
       if (kconfigFile && require("fs").existsSync(kconfigFile)) {
-        this.kconfigServer = await KconfigServer.init({
+        this.trace(`initializeKconfigServer init target=${kconfigFile}`);
+        const server = await KconfigServer.init({
           workspaceFolder: this.curWorkspaceFolder,
           kconfigFile: kconfigFile,
         });
+        if (this._disposed || initToken !== this.initializationToken) {
+          this.trace(`initializeKconfigServer stale result dropped token=${initToken}`);
+          server.dispose();
+          return;
+        }
+        this.kconfigServer = server;
+        this.kconfigServerInitDurationMs = Date.now() - initStartedAt;
+        this.trace("initializeKconfigServer init done");
         
-        // Listen to server events
-        this.kconfigServer.on("valueChanged", (menu: Menu) => {
-          // Enhanced value change notification with debug info
-          const message = {
-            command: "value_updated",
-            menu: menu,
-            timestamp: Date.now(),
-            debug: process.env.NODE_ENV === 'development'
-          };
-
-          this.panel.webview.postMessage(message);
-        });
-
         // configSaved event is now handled in the saveChanges message handler
         // No need to show duplicate notification here
         
@@ -568,93 +455,222 @@ export class MenuconfigPanel {
           }
           this.sendVisibilityDelta(changes);
         });
+
+        this.kconfigServerReady = true;
+        this.trace(`kconfigServer ready pendingInit=${this.pendingInitValuesRequest}`);
+        if (this.pendingInitValuesRequest) {
+          this.pendingInitValuesRequest = false;
+          this.sendInitialValues();
+        }
       }
     } catch (error) {
+      this.kconfigServerInitDurationMs = Date.now() - initStartedAt;
+      this.trace(`initializeKconfigServer failed: ${error instanceof Error ? error.message : String(error)}`);
       Logger.error("Failed to initialize KconfigServer", error as Error);
     }
   }
 
-  /**
-   * Optimize menu data for transfer by removing unnecessary properties
-   * and compressing large structures to prevent communication failures
-   */
-  private optimizeMenusForTransfer(menus: Menu[]): Menu[] {
-    const optimizeMenu = (menu: Menu): Menu => {
-      // Create a copy with only essential properties
-      const optimized: Menu = {
-        id: menu.id,
-        name: menu.name,
-        title: menu.title,
-        type: menu.type,
-        value: menu.value,
-        isVisible: menu.isVisible,
-        isCollapsed: menu.isCollapsed,
-        isMenuconfig: menu.isMenuconfig,
-        hasPrompt: menu.hasPrompt,
-        dependsOn: menu.dependsOn,
-        help: menu.help?.length > 500 ? menu.help.substring(0, 500) + "..." : menu.help, // Truncate long help text
-        range: menu.range,
-        select: menu.select,
-        selectedBy: menu.selectedBy,
-        indentLevel: menu.indentLevel,
-        shouldIndentChildren: menu.shouldIndentChildren,
-        isImplicitContainer: menu.isImplicitContainer,
-        isContainerVisible: menu.isContainerVisible,
-        isReadonly: menu.isReadonly,
-        readonlyReason: menu.readonlyReason,
-        autoSelectedValue: menu.autoSelectedValue,
-        defaults: menu.defaults,
-        isVirtual: menu.isVirtual,
-        childrenParsed: menu.childrenParsed,
-        lazyLoadPath: menu.lazyLoadPath,
-        sourceFiles: menu.sourceFiles,
-        sourceFile: menu.sourceFile,
-        isMainMenu: menu.isMainMenu,
-        children: menu.children ? menu.children.map(optimizeMenu) : []
-      };
-      return optimized;
+  private sendInitialValues(): void {
+    if (this._disposed || !this.kconfigServer) {
+      this.trace("sendInitialValues skipped no server");
+      return;
+    }
+    const now = Date.now();
+    if (now - this.lastInitialValuesSentAt < 250) {
+      this.trace("sendInitialValues throttled");
+      return;
+    }
+    this.lastInitialValuesSentAt = now;
+    this.trace("sendInitialValues dispatch");
+    const getMenusStartedAt = Date.now();
+    const loadedMenus = this.kconfigServer.getMenus();
+    const getMenusDurationMs = Date.now() - getMenusStartedAt;
+    this.setDefaultCollapsedState(loadedMenus);
+
+    const debugConfigSection = vscode.workspace.getConfiguration('kconfig.debug');
+    const debugConfig = {
+      enabled: debugConfigSection.get('enabled', false),
+      menu: debugConfigSection.get('menu', false),
+      startup: debugConfigSection.get('startup', false),
+      startupSlowThresholdMs: debugConfigSection.get('startupSlowThresholdMs', MenuconfigPanel.startupSlowThresholdMs)
     };
 
-    return menus.map(optimizeMenu);
+    this.safelySendMenuData("load_initial_values", loadedMenus, {
+      debugConfig,
+      startupMetrics: {
+        sessionId: ++this.initialTransferSessionSeq,
+        panelAgeMs: Date.now() - this.panelCreatedAt,
+        serverInitMs: this.kconfigServerInitDurationMs,
+        getMenusMs: getMenusDurationMs,
+      },
+    });
+  }
+
+  private setDefaultCollapsedState(menus: Menu[]): void {
+    const setDefault = (menuList: Menu[]) => {
+      menuList.forEach(menu => {
+        if (menu.type === menuType.menu) {
+          menu.isCollapsed = true;
+        }
+        if (menu.children && menu.children.length > 0) {
+          setDefault(menu.children);
+        }
+      });
+    };
+    setDefault(menus);
   }
 
   /**
    * Safely send menu data to webview with error handling and optimization
    */
   private safelySendMenuData(command: string, menus: Menu[], additionalData: any = {}) {
+    if (this._disposed) {
+      this.trace(`safelySendMenuData skipped disposed command=${command}`);
+      return;
+    }
+    this.trace(`safelySendMenuData command=${command} menus=${menus?.length || 0}`);
     //console.log(`[PANEL] safelySendMenuData called with command: ${command}, menus count: ${menus.length}`);
     if (menus.length > 0 && command === "load_initial_values") {
       //console.log(`[PANEL] Sending first menu: name=${menus[0].name}, title=${menus[0].title}, children=${menus[0].children?.length || 0}`);
     }
     try {
+      if (command === "load_initial_values") {
+        const serializeStartedAt = Date.now();
+        const { skeletonMenus, chunks } = splitMenusForChunkedTransfer(
+          menus,
+          MenuconfigPanel.initialPayloadChunkSize
+        );
+        const serializeMs = Date.now() - serializeStartedAt;
+        const chunkBatches = groupChunkTasksForBatches(
+          chunks,
+          MenuconfigPanel.initialPayloadTaskBatchSize
+        );
+        const startupMetrics = (additionalData?.startupMetrics || {}) as Partial<InitialTransferStartupMeta>;
+        const startupMeta: InitialTransferStartupMeta = {
+          sessionId: typeof startupMetrics.sessionId === "number" ? startupMetrics.sessionId : ++this.initialTransferSessionSeq,
+          panelAgeMs: typeof startupMetrics.panelAgeMs === "number" ? startupMetrics.panelAgeMs : Date.now() - this.panelCreatedAt,
+          serverInitMs: typeof startupMetrics.serverInitMs === "number" ? startupMetrics.serverInitMs : this.kconfigServerInitDurationMs,
+          getMenusMs: typeof startupMetrics.getMenusMs === "number" ? startupMetrics.getMenusMs : 0,
+          serializeMs,
+          totalChunks: chunks.length,
+          totalTaskBatches: chunkBatches.length,
+        };
+        const restAdditionalData = { ...(additionalData || {}) } as Record<string, unknown>;
+        delete restAdditionalData.startupMetrics;
+        const transferToken = ++this.initialPayloadTransferToken;
+        this.trace(`initial payload begin token=${transferToken} roots=${skeletonMenus.length} chunks=${chunks.length} taskBatches=${chunkBatches.length}`);
+
+        this.panel.webview.postMessage({
+          command: "load_initial_values_begin",
+          menus: skeletonMenus,
+          meta: {
+            totalChunks: chunks.length,
+            chunkSize: MenuconfigPanel.initialPayloadChunkSize,
+            totalTaskBatches: chunkBatches.length,
+            taskBatchSize: MenuconfigPanel.initialPayloadTaskBatchSize,
+            startup: startupMeta,
+          },
+          ...restAdditionalData
+        });
+
+        const transferStartedAt = Date.now();
+        this.streamInitialPayloadChunks(
+          chunkBatches,
+          transferToken,
+          0,
+          0,
+          chunks.length,
+          startupMeta,
+          transferStartedAt
+        );
+        return;
+      }
+
       const messageData = {
         command,
         menus,
         ...additionalData
       };
-      
-      // Check data size before sending
-      const dataString = JSON.stringify(messageData);
-      const dataSizeInMB = dataString.length / (1024 * 1024);
-      
-      if (dataSizeInMB > 30) { // Lower threshold for safety
-        Logger.warn(`Large menu data detected for command ${command}: ${dataSizeInMB.toFixed(2)}MB. Optimizing data.`);
-        
-        const optimizedMenus = this.optimizeMenusForTransfer(menus);
-        const optimizedData = {
-          command,
-          menus: optimizedMenus,
-          ...additionalData
-        };
-        
-        this.panel.webview.postMessage(optimizedData);
-      } else {
-        this.panel.webview.postMessage(messageData);
-      }
+
+      this.panel.webview.postMessage(messageData);
     } catch (error) {
       Logger.error(`Failed to send ${command} data to webview`, error as Error);
       vscode.window.showErrorMessage(`Failed to update configuration display. ${error instanceof Error ? error.message : 'Unknown error'}`);
     }
+  }
+
+  private streamInitialPayloadChunks(
+    chunkBatches: MenuChunkTask[][],
+    transferToken: number,
+    batchIndex: number,
+    sentChunkCount: number,
+    totalChunks: number,
+    startupMeta: InitialTransferStartupMeta,
+    transferStartedAt: number
+  ): void {
+    if (this._disposed || transferToken !== this.initialPayloadTransferToken) {
+      this.trace(`streamInitialPayloadChunks cancelled token=${transferToken} current=${this.initialPayloadTransferToken} disposed=${this._disposed}`);
+      return;
+    }
+
+    if (batchIndex >= chunkBatches.length) {
+      this.trace(`initial payload end token=${transferToken} chunks=${totalChunks}`);
+      this.panel.webview.postMessage({
+        command: "load_initial_values_end",
+        totalChunks,
+        startup: {
+          sessionId: startupMeta.sessionId,
+          streamMs: Date.now() - transferStartedAt,
+          panelToEndMs: Date.now() - this.panelCreatedAt,
+        },
+      });
+      return;
+    }
+
+    const currentBatch = chunkBatches[batchIndex];
+    const chunkPayload = currentBatch.map((chunk, localIndex) => ({
+      parentId: chunk.parentId,
+      menus: chunk.children,
+      chunkIndex: sentChunkCount + localIndex + 1,
+      totalChunks,
+    }));
+
+    this.panel.webview.postMessage({
+      command: "load_initial_values_batch",
+      chunks: chunkPayload,
+      batchIndex: batchIndex + 1,
+      totalBatches: chunkBatches.length,
+    });
+
+    if (batchIndex + 1 < chunkBatches.length) {
+      setTimeout(() => {
+        this.streamInitialPayloadChunks(
+          chunkBatches,
+          transferToken,
+          batchIndex + 1,
+          sentChunkCount + currentBatch.length,
+          totalChunks,
+          startupMeta,
+          transferStartedAt
+        );
+      }, 0);
+      return;
+    }
+
+    this.trace(`initial payload end token=${transferToken} chunks=${totalChunks}`);
+    this.panel.webview.postMessage({
+      command: "load_initial_values_end",
+      totalChunks,
+      startup: {
+        sessionId: startupMeta.sessionId,
+        streamMs: Date.now() - transferStartedAt,
+        panelToEndMs: Date.now() - this.panelCreatedAt,
+      },
+    });
+  }
+
+  private trace(message: string): void {
+    Logger.debug(() => `[PANEL:${this.panelId}] ${message}`);
   }
 
   private sendVisibilityDelta(changes: Array<{
@@ -668,6 +684,10 @@ export class MenuconfigPanel {
     autoImpliedValue?: 'y' | 'm' | boolean;
     value?: any;
   }>): void {
+    if (this._disposed) {
+      this.trace("sendVisibilityDelta skipped disposed");
+      return;
+    }
     try {
       this.panel.webview.postMessage({
         command: "visibility_delta",

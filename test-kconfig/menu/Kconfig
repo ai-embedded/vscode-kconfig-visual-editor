@@ -1,6 +1,9 @@
 mainmenu "Menu Kconfig Test"
 
 menu "Main Settings"
+    comment "This menu contains the main settings for the test Kconfig."
+    comment " Test Feature "
+
     config TEST_FEATURE
         bool "Enable Test Feature"
         default y

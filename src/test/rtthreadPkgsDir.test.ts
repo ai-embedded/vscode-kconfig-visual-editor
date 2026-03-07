@@ -62,7 +62,7 @@ export async function runRtThreadPkgsDirTests(): Promise<void> {
     );
 
     const resolverModule = require("../rtthread/pkgsDirResolver") as {
-        pickAutoPkgsDir?: (workspacePath: string, rtThreadRoot?: string) => { path: string; source: string } | undefined;
+        pickAutoPkgsDir?: (_workspacePath: string, _rtThreadRoot?: string) => { path: string; source: string } | undefined;
     };
     const pickAutoPkgsDir = resolverModule.pickAutoPkgsDir;
     assert.strictEqual(

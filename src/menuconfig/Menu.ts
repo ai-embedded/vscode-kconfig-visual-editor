@@ -18,6 +18,7 @@ export enum menuType {
   choice = "choice",
   hex = "hex",
   menu = "menu",
+  comment = "comment",
 }
 
 export interface Menu {
@@ -68,11 +69,6 @@ export interface Menu {
   
   // Main menu marker
   isMainMenu?: boolean;        // True when this menu represents the top-level mainmenu container
-
-  // Lazy loading support
-  isVirtual?: boolean;          // Virtual node for lazy loading (content not yet parsed)
-  childrenParsed?: boolean;     // Whether children have been parsed (for lazy loading)
-  lazyLoadPath?: string;        // Path pattern to load when expanding virtual node
 
   // Enhanced help information (matching Kconfiglib's help display)
   linenr?: number;              // Line number where this config is defined

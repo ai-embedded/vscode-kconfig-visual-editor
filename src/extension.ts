@@ -17,7 +17,6 @@
 import * as vscode from 'vscode';
 import { KconfigLangClient } from './kconfig/index';
 import { MenuconfigPanel } from './menuconfig/MenuconfigPanel';
-import { KconfigMenuLoader } from './menuconfig/KconfigMenuLoader';
 import { KconfigServer } from './menuconfig/KconfigServer';
 import { FileWatcher } from './menuconfig/fileWatcher';
 import { Logger } from './logger/logger';
@@ -63,13 +62,9 @@ export function activate(context: vscode.ExtensionContext) {
         }
 
         try {
-            const menuLoader = new KconfigMenuLoader(workspaceFolder.uri, targetFile);
-            const initialMenus = await menuLoader.loadKconfigMenus();
-            
             MenuconfigPanel.createOrShow(
                 context.extensionUri,
                 workspaceFolder.uri,
-                initialMenus,
                 targetFile
             );
         } catch (error: any) {

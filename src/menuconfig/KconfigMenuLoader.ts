@@ -18,6 +18,7 @@ import { formatHelpText } from "./helpTextFormatter";
 import { Logger } from "../logger/logger";
 import { ensureRtThreadEnvironment } from "../rtthread/environment";
 import { KconfigParser } from "./KconfigParser";
+import { KconfigSessionCache } from "./KconfigSessionCache";
 
 export class KconfigMenuLoader {
   public static updateValues(
@@ -53,19 +54,10 @@ export class KconfigMenuLoader {
 
   private workspaceFolder: vscode.Uri;
   private targetFile?: vscode.Uri;
-  private parser?: KconfigParser;
 
   constructor(workspaceFolder: vscode.Uri, targetFile?: vscode.Uri) {
     this.workspaceFolder = workspaceFolder;
     this.targetFile = targetFile;
-  }
-  
-  /**
-   * Get the saved parser instance
-   * @returns The saved parser instance or undefined
-   */
-  public getParser(): KconfigParser | undefined {
-    return this.parser;
   }
 
   public async loadKconfigMenus(): Promise<Menu[]> {
@@ -78,15 +70,7 @@ export class KconfigMenuLoader {
         Logger.info(`Parsing specific Kconfig file: ${targetPath}`);
         
         try {
-          const parser = new KconfigParser({
-            workspaceFolder: this.workspaceFolder.fsPath,
-            mainKconfigFile: targetPath
-          });
-          
-          // 保存 parser 实例以供后续懒加载使用
-          this.parser = parser;
-          
-          const parsedMenus = await parser.parse();
+          const parsedMenus = await this.parseMenusWithCache(targetPath);
           
           if (parsedMenus.length === 0) {
             Logger.warn("No menus parsed from target Kconfig file, using demo menus");
@@ -116,12 +100,7 @@ export class KconfigMenuLoader {
     const mainKconfigFile = kconfigFiles.find(f => path.basename(f) === "Kconfig") || kconfigFiles[0];
     
     try {
-      const parser = new KconfigParser({
-        workspaceFolder: this.workspaceFolder.fsPath,
-        mainKconfigFile: mainKconfigFile
-      });
-      
-      const parsedMenus = await parser.parse();
+      const parsedMenus = await this.parseMenusWithCache(mainKconfigFile);
       
       if (parsedMenus.length === 0) {
         Logger.warn("No menus parsed from Kconfig files, using demo menus");
@@ -134,6 +113,28 @@ export class KconfigMenuLoader {
       Logger.error("Failed to parse Kconfig files", error as Error);
       return this.createDemoMenus();
     }
+  }
+
+  private async parseMenusWithCache(mainKconfigFile: string): Promise<Menu[]> {
+    const cache = new KconfigSessionCache(this.workspaceFolder.fsPath);
+    const cacheKey = KconfigSessionCache.buildCacheKey(mainKconfigFile);
+
+    const cachedMenus = await cache.load(cacheKey);
+    if (cachedMenus && cachedMenus.length > 0) {
+      Logger.info(() => `[SESSION_CACHE] Loaded ${cachedMenus.length} menus from cache: ${mainKconfigFile}`);
+      return cachedMenus;
+    }
+
+    const parser = new KconfigParser({
+      workspaceFolder: this.workspaceFolder.fsPath,
+      mainKconfigFile: mainKconfigFile
+    });
+
+    const parsedMenus = await parser.parse();
+    if (parsedMenus.length > 0) {
+      await cache.save(cacheKey, parsedMenus, parser.getParsedFiles());
+    }
+    return parsedMenus;
   }
 
 
@@ -431,64 +432,5 @@ export class KconfigMenuLoader {
     items.push(subStringConfig);
 
     return items;
-  }
-
-  /**
-   * Expand a package node (lazy loading)
-   * @param nodeId The ID of the node to expand
-   * @returns Promise resolving to the loaded menu items
-   */
-  public async expandPackageNode(nodeId: string, menuTree?: Menu[]): Promise<Menu[]> {
-    try {
-      // First try to use the saved parser instance if available
-      if (this.parser) {
-        Logger.info(`[MENULOADER] Using existing parser instance to expand node ${nodeId}`);
-        // Parse virtual node children - only pass the menu object
-        const nodeMenu = menuTree?.find(m => m.id === nodeId);
-        if (!nodeMenu) {
-            Logger.error(`[MENULOADER] Could not find menu node with id ${nodeId}`);
-            return [];
-        }
-        return await this.parser.parseVirtualNodeChildren(nodeMenu);
-      }
-      
-      Logger.warn(`[MENULOADER] No saved parser instance available, creating new parser for node ${nodeId}`);
-      
-      // Fallback: create a new parser if no saved instance
-      let mainKconfigFile: string | null = null;
-      
-      if (this.targetFile) {
-        mainKconfigFile = this.targetFile.fsPath;
-      } else {
-        const kconfigFiles = this.findKconfigFiles();
-        if (kconfigFiles.length > 0) {
-          mainKconfigFile = kconfigFiles.find(f => path.basename(f) === "Kconfig") || kconfigFiles[0];
-        }
-      }
-      
-      if (!mainKconfigFile) {
-        Logger.warn(`[MENULOADER] No Kconfig file found for expandPackageNode`);
-        return [];
-      }
-      
-      // Create parser and delegate to it (this is less ideal but provides fallback)
-      const parser = new KconfigParser({
-        workspaceFolder: this.workspaceFolder.fsPath,
-        mainKconfigFile: mainKconfigFile
-      });
-      
-      Logger.info(`[MENULOADER] Expanding package node ${nodeId} using new parser (fallback)`);
-      // Parse virtual node children - only pass the menu object
-      const nodeMenu = menuTree?.find(m => m.id === nodeId);
-      if (!nodeMenu) {
-          Logger.error(`[MENULOADER] Could not find menu node with id ${nodeId}`);
-          return [];
-      }
-      return await parser.parseVirtualNodeChildren(nodeMenu);
-      
-    } catch (error) {
-      Logger.error(`[MENULOADER] Failed to expand package node ${nodeId}`, error as Error);
-      return [];
-    }
   }
 }

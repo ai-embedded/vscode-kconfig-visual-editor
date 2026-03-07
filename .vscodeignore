@@ -108,3 +108,6 @@ dist/views/bundle-*.json
 
 # ESLint 配置文件（运行时不需要）
 .eslintignore
+
+# Kconfig cache
+.kconfig-cache

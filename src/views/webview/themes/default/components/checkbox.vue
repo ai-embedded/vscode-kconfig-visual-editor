@@ -62,6 +62,9 @@ const showTooltip = (message: string) => {
 
 function toggleHelp() {
   isHelpVisible.value = !isHelpVisible.value;
+  if (isHelpVisible.value) {
+    store.requestMenuDetail(props.config.id);
+  }
 }
 
 // 监听 props.config.value 的变化，强制更新 localValue

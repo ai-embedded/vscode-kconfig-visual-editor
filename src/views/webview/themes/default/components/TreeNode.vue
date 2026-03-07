@@ -21,6 +21,7 @@ interface TreeItem {
   label: string;
   value: string;
   open: boolean;
+  hasChildren: boolean;
   subItems: TreeItem[];
   isVisible?: boolean;
   isMainMenu?: boolean;
@@ -40,7 +41,12 @@ const emit = defineEmits<{
 const store = useMenuconfigStore();
 const selectedMenu = computed(() => store.selectedMenu);
 
-const hasChildren = computed(() => props.item.subItems && props.item.subItems.length > 0);
+const hasChildren = computed(() => {
+  if (props.item.hasChildren) {
+    return true;
+  }
+  return props.item.subItems && props.item.subItems.length > 0;
+});
 
 function toggleItem(event: Event) {
   event.stopPropagation();

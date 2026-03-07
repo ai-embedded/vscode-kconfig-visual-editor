@@ -22,7 +22,21 @@ try {
 }
 
 export class Logger {
+    private static resolveMessage(message: string | (() => string)): string {
+        if (typeof message === "function") {
+            try {
+                return message();
+            } catch (error) {
+                return `[LOGGER_MESSAGE_FACTORY_ERROR] ${error instanceof Error ? error.message : String(error)}`;
+            }
+        }
+        return message;
+    }
+
     private static outputChannel: any | null = null;
+    private static readonly CONFIG_CACHE_TTL_MS = 1000;
+    private static logConfigCache: { value: any; timestamp: number } | null = null;
+    private static debugConfigCache: { value: any; timestamp: number } | null = null;
     
     private static getOutputChannel(): any {
         if (!Logger.outputChannel && vscode) {
@@ -35,36 +49,51 @@ export class Logger {
      * 获取日志配置
      */
     private static getLogConfig(): any {
+        const now = Date.now();
+        if (Logger.logConfigCache && (now - Logger.logConfigCache.timestamp) < Logger.CONFIG_CACHE_TTL_MS) {
+            return Logger.logConfigCache.value;
+        }
+
+        let configValue: any;
         if (!vscode) {
-            return {
-                enabled: true,
+            configValue = {
+                enabled: false,
                 levels: {
-                    info: true,
-                    warn: true,
-                    error: true,
+                    info: false,
+                    warn: false,
+                    error: false,
                     debug: false
                 }
             };
+        } else {
+            const logConfig = vscode.workspace.getConfiguration('kconfig.log');
+            configValue = {
+                enabled: logConfig.get('enabled', false),
+                levels: {
+                    info: logConfig.get('level.info', false),
+                    warn: logConfig.get('level.warn', false),
+                    error: logConfig.get('level.error', false),
+                    debug: logConfig.get('level.debug', false)
+                }
+            };
         }
-        
-        const logConfig = vscode.workspace.getConfiguration('kconfig.log');
-        return {
-            enabled: logConfig.get('enabled', false),
-            levels: {
-                info: logConfig.get('level.info', true),
-                warn: logConfig.get('level.warn', true),
-                error: logConfig.get('level.error', true),
-                debug: logConfig.get('level.debug', false)
-            }
-        };
+
+        Logger.logConfigCache = { value: configValue, timestamp: now };
+        return configValue;
     }
     
     /**
      * 获取调试配置
      */
     private static getDebugConfig(): any {
+        const now = Date.now();
+        if (Logger.debugConfigCache && (now - Logger.debugConfigCache.timestamp) < Logger.CONFIG_CACHE_TTL_MS) {
+            return Logger.debugConfigCache.value;
+        }
+
+        let configValue: any;
         if (!vscode) {
-            return {
+            configValue = {
                 enabled: false,
                 parser: false,
                 visibility: false,
@@ -72,23 +101,26 @@ export class Logger {
                 select: false,
                 source: false
             };
+        } else {
+            const config = vscode.workspace.getConfiguration('kconfig.debug');
+            configValue = {
+                enabled: config.get('enabled', false),
+                parser: config.get('parser', false),
+                visibility: config.get('visibility', false),
+                menu: config.get('menu', false),
+                select: config.get('select', false),
+                source: config.get('source', false)
+            };
         }
-        
-        const config = vscode.workspace.getConfiguration('kconfig.debug');
-        return {
-            enabled: config.get('enabled', false),
-            parser: config.get('parser', false),
-            visibility: config.get('visibility', false),
-            menu: config.get('menu', false),
-            select: config.get('select', false),
-            source: config.get('source', false)
-        };
+
+        Logger.debugConfigCache = { value: configValue, timestamp: now };
+        return configValue;
     }
     
     /**
      * 通用调试日志方法
      */
-    private static debugLog(category: string, message: string, categoryEnabled: boolean): void {
+    private static debugLog(category: string, message: string | (() => string), categoryEnabled: boolean): void {
         const debugConfig = Logger.getDebugConfig();
         
         // 总开关未开启时直接返回
@@ -102,7 +134,8 @@ export class Logger {
         }
         
         const timestamp = new Date().toISOString();
-        const logMessage = `[${timestamp}] [DEBUG:${category}] ${message}`;
+        const resolvedMessage = Logger.resolveMessage(message);
+        const logMessage = `[${timestamp}] [DEBUG:${category}] ${resolvedMessage}`;
         const channel = Logger.getOutputChannel();
         if (channel) {
             channel.appendLine(logMessage);
@@ -110,14 +143,15 @@ export class Logger {
         // console.debug(logMessage);
     }
     
-    public static info(message: string): void {
+    public static info(message: string | (() => string)): void {
         const logConfig = Logger.getLogConfig();
         if (!logConfig.enabled || !logConfig.levels.info) {
             return;
         }
         
         const timestamp = new Date().toISOString();
-        const logMessage = `[${timestamp}] [INFO] ${message}`;
+        const resolvedMessage = Logger.resolveMessage(message);
+        const logMessage = `[${timestamp}] [INFO] ${resolvedMessage}`;
         const channel = Logger.getOutputChannel();
         if (channel) {
             channel.appendLine(logMessage);
@@ -125,14 +159,15 @@ export class Logger {
 ////console.log(logMessage);
     }
     
-    public static warn(message: string): void {
+    public static warn(message: string | (() => string)): void {
         const logConfig = Logger.getLogConfig();
         if (!logConfig.enabled || !logConfig.levels.warn) {
             return;
         }
         
         const timestamp = new Date().toISOString();
-        const logMessage = `[${timestamp}] [WARN] ${message}`;
+        const resolvedMessage = Logger.resolveMessage(message);
+        const logMessage = `[${timestamp}] [WARN] ${resolvedMessage}`;
         const channel = Logger.getOutputChannel();
         if (channel) {
             channel.appendLine(logMessage);
@@ -141,11 +176,7 @@ export class Logger {
     }
     
     public static error(message: string, error?: Error, context?: string): void {
-        const logConfig = Logger.getLogConfig();
-        if (!logConfig.enabled || !logConfig.levels.error) {
-            return;
-        }
-        
+        // Error logs are treated as important and are always emitted.
         const timestamp = new Date().toISOString();
         let errorMessage = `[${timestamp}] [ERROR] ${message}`;
         
@@ -168,14 +199,15 @@ export class Logger {
         }
     }
     
-    public static debug(message: string): void {
+    public static debug(message: string | (() => string)): void {
         const logConfig = Logger.getLogConfig();
         if (!logConfig.enabled || !logConfig.levels.debug) {
             return;
         }
         
         const timestamp = new Date().toISOString();
-        const logMessage = `[${timestamp}] [DEBUG] ${message}`;
+        const resolvedMessage = Logger.resolveMessage(message);
+        const logMessage = `[${timestamp}] [DEBUG] ${resolvedMessage}`;
         const channel = Logger.getOutputChannel();
         if (channel) {
             channel.appendLine(logMessage);
@@ -186,7 +218,7 @@ export class Logger {
     /**
      * 解析器调试日志 (CONFIG_PARSER, IF_PARSER)
      */
-    public static debugParser(message: string): void {
+    public static debugParser(message: string | (() => string)): void {
         const debugConfig = Logger.getDebugConfig();
         Logger.debugLog('PARSER', message, debugConfig.parser);
     }
@@ -194,7 +226,7 @@ export class Logger {
     /**
      * 可见性调试日志 (VISIBILITY_DEBUG)
      */
-    public static debugVisibility(message: string): void {
+    public static debugVisibility(message: string | (() => string)): void {
         const debugConfig = Logger.getDebugConfig();
         Logger.debugLog('VISIBILITY', message, debugConfig.visibility);
     }
@@ -202,7 +234,7 @@ export class Logger {
     /**
      * 菜单渲染调试日志 (MENU_RENDER_DEBUG, INDENT_DEBUG)
      */
-    public static debugMenu(message: string): void {
+    public static debugMenu(message: string | (() => string)): void {
         const debugConfig = Logger.getDebugConfig();
         Logger.debugLog('MENU', message, debugConfig.menu);
     }
@@ -210,7 +242,7 @@ export class Logger {
     /**
      * select语句调试日志 (SELECT_INIT)
      */
-    public static debugSelect(message: string): void {
+    public static debugSelect(message: string | (() => string)): void {
         const debugConfig = Logger.getDebugConfig();
         Logger.debugLog('SELECT', message, debugConfig.select);
     }
@@ -218,7 +250,7 @@ export class Logger {
     /**
      * 源文件处理调试日志 (SOURCE_DEBUG)
      */
-    public static debugSource(message: string): void {
+    public static debugSource(message: string | (() => string)): void {
         const debugConfig = Logger.getDebugConfig();
         Logger.debugLog('SOURCE', message, debugConfig.source);
     }
@@ -226,7 +258,7 @@ export class Logger {
     /**
      * 配置写入调试日志 (WRITER_DEBUG)
      */
-    public static debugWriter(message: string): void {
+    public static debugWriter(message: string | (() => string)): void {
         const debugConfig = Logger.getDebugConfig();
         // For now, use the debug config enabled flag
         // In the future, we could add a separate writer debug flag
@@ -245,5 +277,7 @@ export class Logger {
             Logger.outputChannel.dispose();
             Logger.outputChannel = null;
         }
+        Logger.logConfigCache = null;
+        Logger.debugConfigCache = null;
     }
 }

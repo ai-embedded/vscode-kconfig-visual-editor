@@ -50,3 +50,6 @@ coverage/
 # OS specific files
 .DS_Store
 Thumbs.db
+
+# Kconfig cache
+.kconfig-cache

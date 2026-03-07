@@ -220,8 +220,7 @@ function buildRows(
     }
 
     if (type === "menu") {
-      const hasLazyChildren = item.isVirtual === true && item.childrenParsed !== true;
-      row.hasChildren = hasLazyChildren || acc.length > beforeChildrenLength;
+      row.hasChildren = acc.length > beforeChildrenLength;
     }
   });
 }
@@ -262,6 +261,8 @@ function getRowType(item: Menu): RowType {
       return "int";
     case menuType.hex:
       return "hex";
+    case menuType.comment:
+      return "comment";
     default:
       return item.type === "comment" ? "comment" : "other";
   }

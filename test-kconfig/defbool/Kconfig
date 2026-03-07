@@ -1,0 +1,22 @@
+mainmenu "Def Bool Test"
+
+config MMU
+    bool "MMU"
+    default y
+
+config MM_DEBUG
+    bool "Enable MM debug option"
+    default y
+
+config ARCH_HAS_PTDUMP
+    bool
+
+config ARCH_RISCV
+    def_bool y
+    select ARCH_HAS_PTDUMP if MMU
+
+if MM_DEBUG
+config PTDUMP
+    bool "Enable page-table dump"
+    depends on ARCH_HAS_PTDUMP
+endif

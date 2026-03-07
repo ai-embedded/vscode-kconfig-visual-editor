@@ -18,12 +18,6 @@ import { Menu } from "../../menuconfig/Menu";
 
 type ColorThemeKindKey = "light" | "dark";
 
-declare global {
-  interface Window {
-    __KCONFIG_VSCODE_COLOR_THEME__?: string;
-  }
-}
-
 declare var acquireVsCodeApi: any;
 let vscode: any;
 try {
@@ -32,7 +26,15 @@ try {
   //console.log("[STORE] VSCode API acquired successfully!");
 } catch (error) {
   // tslint:disable-next-line: no-console
-  //console.error("[STORE] Failed to acquire VSCode API:", error);
+  console.error("[STORE] Failed to acquire VSCode API:", error);
+}
+
+function postMessageSafely(message: any): void {
+  if (!vscode || typeof vscode.postMessage !== "function") {
+    console.error("[STORE] postMessage skipped: VSCode API unavailable", message?.command || message);
+    return;
+  }
+  vscode.postMessage(message);
 }
 
 export interface State {
@@ -57,6 +59,11 @@ export const useMenuconfigStore = defineStore("menuconfig", () => {
   const showDiscardConfirm = ref(false);
   const showResetConfirm = ref(false);
   const closeAllHelpTimestamp = ref(0); // 用于触发关闭所有帮助信息
+  const initialLoadInProgress = ref(false);
+  const initialLoadChunkTotal = ref(0);
+  const initialLoadChunkReceived = ref(0);
+  const menuDetailLoadedIds = ref(new Set<string>());
+  const menuDetailPendingIds = ref(new Set<string>());
   const textDictionary: Ref<{
     save: string;
     discard: string;
@@ -68,7 +75,8 @@ export const useMenuconfigStore = defineStore("menuconfig", () => {
   });
 
   const initialColorThemeKind: ColorThemeKindKey =
-    typeof window !== "undefined" && window.__KCONFIG_VSCODE_COLOR_THEME__ === "light"
+    typeof window !== "undefined" &&
+    (window as typeof window & { __KCONFIG_VSCODE_COLOR_THEME__?: string }).__KCONFIG_VSCODE_COLOR_THEME__ === "light"
       ? "light"
       : "dark";
 
@@ -88,12 +96,12 @@ export const useMenuconfigStore = defineStore("menuconfig", () => {
       timestamp: Date.now()
     };
     
-    vscode.postMessage(message);
+    postMessageSafely(message);
   }
 
   function saveGuiConfig() {
     // Save current items
-    vscode.postMessage({
+    postMessageSafely({
       command: "saveChanges",
     });
   }
@@ -106,7 +114,7 @@ export const useMenuconfigStore = defineStore("menuconfig", () => {
   function confirmDiscard() {
     // Hide dialog and perform discard
     showDiscardConfirm.value = false;
-    vscode.postMessage({
+    postMessageSafely({
       command: "discardChanges",
     });
   }
@@ -118,9 +126,120 @@ export const useMenuconfigStore = defineStore("menuconfig", () => {
 
   function requestInitValues() {
     //console.log("[STORE] Sending requestInitValues message to backend");
-    vscode.postMessage({
+    postMessageSafely({
       command: "requestInitValues",
     });
+  }
+
+  function requestMenuDetail(id: string) {
+    if (!id) {
+      return;
+    }
+    if (menuDetailLoadedIds.value.has(id) || menuDetailPendingIds.value.has(id)) {
+      return;
+    }
+    const nextPending = new Set(menuDetailPendingIds.value);
+    nextPending.add(id);
+    menuDetailPendingIds.value = nextPending;
+    postMessageSafely({
+      command: "requestMenuDetail",
+      id,
+    });
+  }
+
+  function beginInitialLoad(newMenus: Menu[], meta?: { totalChunks?: number }) {
+    const totalChunks = meta?.totalChunks;
+    initialLoadInProgress.value = true;
+    initialLoadChunkTotal.value = typeof totalChunks === "number" && totalChunks > 0 ? totalChunks : 0;
+    initialLoadChunkReceived.value = 0;
+    replaceItems(newMenus, { preserveCollapse: false });
+  }
+
+  function appendInitialChunk(parentId: string, chunkMenus: Menu[], chunkIndex?: number, totalChunks?: number) {
+    if (!parentId || !Array.isArray(chunkMenus) || chunkMenus.length === 0) {
+      return;
+    }
+
+    const parent = getMenuById(parentId);
+    if (!parent) {
+      return;
+    }
+
+    if (!Array.isArray(parent.children)) {
+      parent.children = [];
+    }
+    parent.children.push(...chunkMenus);
+    const nextIndex = new Map(menuIndex.value);
+    appendToIndexMap(nextIndex, chunkMenus);
+    menuIndex.value = nextIndex;
+
+    if (typeof totalChunks === "number" && totalChunks > 0) {
+      initialLoadChunkTotal.value = totalChunks;
+    }
+    if (typeof chunkIndex === "number" && chunkIndex > 0) {
+      initialLoadChunkReceived.value = Math.max(initialLoadChunkReceived.value, chunkIndex);
+    } else {
+      initialLoadChunkReceived.value += 1;
+    }
+  }
+
+  function appendInitialChunks(chunks: Array<{
+    parentId: string;
+    menus: Menu[];
+    chunkIndex?: number;
+    totalChunks?: number;
+  }>) {
+    if (!Array.isArray(chunks) || chunks.length === 0) {
+      return;
+    }
+
+    let maxChunkReceived = initialLoadChunkReceived.value;
+    let maxTotalChunks = initialLoadChunkTotal.value;
+    let hasAnonymousChunk = false;
+    const nextIndex = new Map(menuIndex.value);
+    let indexChanged = false;
+
+    for (const chunk of chunks) {
+      if (!chunk || !chunk.parentId || !Array.isArray(chunk.menus) || chunk.menus.length === 0) {
+        continue;
+      }
+
+      const parent = nextIndex.get(chunk.parentId);
+      if (!parent) {
+        continue;
+      }
+
+      if (!Array.isArray(parent.children)) {
+        parent.children = [];
+      }
+      parent.children.push(...chunk.menus);
+      appendToIndexMap(nextIndex, chunk.menus);
+      indexChanged = true;
+
+      if (typeof chunk.totalChunks === "number" && chunk.totalChunks > 0) {
+        maxTotalChunks = Math.max(maxTotalChunks, chunk.totalChunks);
+      }
+      if (typeof chunk.chunkIndex === "number" && chunk.chunkIndex > 0) {
+        maxChunkReceived = Math.max(maxChunkReceived, chunk.chunkIndex);
+      } else {
+        hasAnonymousChunk = true;
+      }
+    }
+
+    initialLoadChunkTotal.value = maxTotalChunks;
+    initialLoadChunkReceived.value = hasAnonymousChunk
+      ? Math.max(maxChunkReceived, initialLoadChunkReceived.value + 1)
+      : maxChunkReceived;
+    if (indexChanged) {
+      menuIndex.value = nextIndex;
+    }
+  }
+
+  function finishInitialLoad() {
+    if (initialLoadChunkTotal.value > 0 && initialLoadChunkReceived.value < initialLoadChunkTotal.value) {
+      initialLoadChunkReceived.value = initialLoadChunkTotal.value;
+    }
+    initialLoadInProgress.value = false;
   }
 
   function setDefaultConfig() {
@@ -131,7 +250,7 @@ export const useMenuconfigStore = defineStore("menuconfig", () => {
   function confirmReset() {
     // Hide dialog and perform reset
     showResetConfirm.value = false;
-    vscode.postMessage({
+    postMessageSafely({
       command: "setDefault",
     });
   }
@@ -192,26 +311,6 @@ export const useMenuconfigStore = defineStore("menuconfig", () => {
     setAllMenusCollapsed(false);
   }
 
-  // 🔑 修复重复懒加载：跟踪正在加载的虚拟节点
-  const loadingVirtualNodes = ref(new Set<string>());
-
-  function loadVirtualNodeContent(nodeId: string) {
-    // 防止重复加载同一个虚拟节点
-    if (loadingVirtualNodes.value.has(nodeId)) {
-//////console.log(`🚫 [STORE_DEBUG] 节点 ${nodeId} 已在加载中，跳过重复请求`);
-      return;
-    }
-
-//////console.log(`📡 [STORE_DEBUG] 发送懒加载请求: ${nodeId}`);
-    loadingVirtualNodes.value.add(nodeId);
-    
-    vscode.postMessage({
-      command: "loadVirtualNode",
-      nodeId: nodeId,
-      timestamp: Date.now()
-    });
-  }
-
   function collectCollapseStates(menus: Menu[] | undefined, map: Map<string, boolean>) {
     if (!menus) {
       return;
@@ -252,6 +351,11 @@ export const useMenuconfigStore = defineStore("menuconfig", () => {
     if (!Array.isArray(newMenus)) {
       items.value = [];
       menuIndex.value = new Map();
+      menuDetailLoadedIds.value = new Set();
+      menuDetailPendingIds.value = new Set();
+      initialLoadInProgress.value = false;
+      initialLoadChunkTotal.value = 0;
+      initialLoadChunkReceived.value = 0;
       return;
     }
 
@@ -265,49 +369,17 @@ export const useMenuconfigStore = defineStore("menuconfig", () => {
 
     items.value = newMenus;
     rebuildIndex(items.value);
-  }
-
-  function updateMenuItem(updatedMenu: Menu): boolean {
-    const updateIndexForMenu = (menu: Menu) => {
-      if (menu.id) {
-        menuIndex.value.set(menu.id, menu);
-      }
-      if (menu.children && menu.children.length > 0) {
-        menu.children.forEach(updateIndexForMenu);
-      }
-    };
-
-    const update = (menus: Menu[]): boolean => {
-      for (let i = 0; i < menus.length; i++) {
-        if (menus[i].id === updatedMenu.id) {
-          menus[i] = { ...menus[i], ...updatedMenu };
-          updateIndexForMenu(menus[i]);
-          return true;
-        }
-        if (menus[i].children && menus[i].children.length > 0) {
-          if (update(menus[i].children)) {
-            return true;
-          }
-        }
-      }
-      return false;
-    };
-
-    return update(items.value);
-  }
-
-  function handleVirtualNodeLoaded(menus: Menu[], nodeId?: string) {
-    if (nodeId) {
-      loadingVirtualNodes.value.delete(nodeId);
-//////console.log(`✅ [STORE_DEBUG] 节点 ${nodeId} 懒加载完成，清除加载状态`);
-    }
-    replaceItems(menus);
-//////console.log(`🎯 [VIRTUAL_NODE_DEBUG] Received virtual_node_loaded with ${menus.length} menus`);
+    menuDetailLoadedIds.value = new Set();
+    menuDetailPendingIds.value = new Set();
   }
 
   function rebuildIndex(menus: Menu[]): void {
     const newIndex = new Map<string, Menu>();
+    appendToIndexMap(newIndex, menus);
+    menuIndex.value = newIndex;
+  }
 
+  function appendToIndexMap(nextIndex: Map<string, Menu>, menus: Menu[]): void {
     const stack: Menu[] = [...menus];
     while (stack.length > 0) {
       const menu = stack.pop();
@@ -315,7 +387,7 @@ export const useMenuconfigStore = defineStore("menuconfig", () => {
         continue;
       }
       if (menu.id) {
-        newIndex.set(menu.id, menu);
+        nextIndex.set(menu.id, menu);
       }
       if (menu.children && menu.children.length > 0) {
         for (let i = 0; i < menu.children.length; i++) {
@@ -323,8 +395,6 @@ export const useMenuconfigStore = defineStore("menuconfig", () => {
         }
       }
     }
-
-    menuIndex.value = newIndex;
   }
 
   function getMenuById(id: string): Menu | undefined {
@@ -382,6 +452,32 @@ export const useMenuconfigStore = defineStore("menuconfig", () => {
     });
   }
 
+  function applyMenuDetail(id: string, detail: Partial<Menu> | null | undefined) {
+    if (!id) {
+      return;
+    }
+
+    if (menuDetailPendingIds.value.has(id)) {
+      const nextPending = new Set(menuDetailPendingIds.value);
+      nextPending.delete(id);
+      menuDetailPendingIds.value = nextPending;
+    }
+
+    if (!detail) {
+      return;
+    }
+
+    const target = getMenuById(id);
+    if (!target) {
+      return;
+    }
+
+    Object.assign(target, detail);
+    const nextLoaded = new Set(menuDetailLoadedIds.value);
+    nextLoaded.add(id);
+    menuDetailLoadedIds.value = nextLoaded;
+  }
+
   function closeAllHelp() {
     // 更新时间戳以触发所有组件关闭帮助信息
     closeAllHelpTimestamp.value = Date.now();
@@ -400,6 +496,9 @@ export const useMenuconfigStore = defineStore("menuconfig", () => {
     showResetConfirm,
     closeAllHelpTimestamp,
     colorThemeKind,
+    initialLoadInProgress,
+    initialLoadChunkTotal,
+    initialLoadChunkReceived,
     sendNewValue,
     setDefaultConfig,
     saveGuiConfig,
@@ -409,16 +508,19 @@ export const useMenuconfigStore = defineStore("menuconfig", () => {
     confirmReset,
     cancelReset,
     requestInitValues,
+    beginInitialLoad,
+    appendInitialChunk,
+    appendInitialChunks,
+    finishInitialLoad,
+    requestMenuDetail,
     toggleMenuCollapse,
     collapseAllMenus,
     expandAllMenus,
     closeAllHelp,
-    loadVirtualNodeContent,
-    handleVirtualNodeLoaded,
     replaceItems,
     setMenuCollapseById,
     setColorThemeKind,
     applyVisibilityDelta,
-    updateMenuItem,
+    applyMenuDetail,
   };
 });

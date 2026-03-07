@@ -65,7 +65,6 @@ const getInitialCollapsedState = () => {
     //console.log(`[MENUCONFIG_DEBUG]   - Title: ${props.config.title}`);
     //console.log(`[MENUCONFIG_DEBUG]   - Type: ${props.config.type}`);
     //console.log(`[MENUCONFIG_DEBUG]   - isMenuconfig: ${props.config.isMenuconfig}`);
-    //console.log(`[MENUCONFIG_DEBUG]   - isVirtual: ${props.config.isVirtual}`);
     //console.log(`[MENUCONFIG_DEBUG]   - value: ${props.config.value}`);
     //console.log(`[MENUCONFIG_DEBUG]   - isCollapsed: ${props.config.isCollapsed}`);
     //console.log(`[MENUCONFIG_DEBUG]   - isMainMenu: ${isMainMenu.value}`);
@@ -131,6 +130,9 @@ onMounted(() => {
 
 function toggleHelp() {
   isHelpVisible.value = !isHelpVisible.value;
+  if (isHelpVisible.value) {
+    store.requestMenuDetail(props.config.id);
+  }
 }
 
 function onChange(e: any) {
@@ -147,11 +149,6 @@ function onChange(e: any) {
     isCollapsed.value = newCollapsedState;
     props.config.isCollapsed = isCollapsed.value;
     
-    // 如果选中且是虚拟节点，触发懒加载
-    if (e === true && props.config.isVirtual && !props.config.childrenParsed) {
-      ////console.log(`[MENUCONFIG_DEBUG] 🚀 menuconfig 选中，触发懒加载: ${props.config.id}`);
-      store.loadVirtualNodeContent(props.config.id);
-    }
   }
   
   const updatedConfig = {
@@ -193,12 +190,6 @@ function toggleCollapse() {
   }
 
   ////console.log(`[MENUCONFIG_DEBUG] 🔄 状态变更: ${wasCollapsed ? '折叠' : '展开'} → ${isCollapsed.value ? '折叠' : '展开'}`);
-
-  // 检查是否需要懒加载
-  if (!isCollapsed.value && props.config.isVirtual && !props.config.childrenParsed) {
-    ////console.log(`[MENUCONFIG_DEBUG] 🚀 触发懒加载: ${props.config.id}`);
-    store.loadVirtualNodeContent(props.config.id);
-  }
 
   ////console.log(`[MENUCONFIG_DEBUG] ===== 折叠状态切换完成 =====`);
 }
@@ -248,6 +239,16 @@ watch(closeAllHelpTimestamp, () => {
       @change="onChange"
     />
     <div
+      v-if="props.config.type === 'comment' && props.config.isVisible"
+      class="comment-row"
+    >
+      <div class="comment-content">
+        <span class="comment-stars">***</span>
+        <p class="comment-text">{{ props.config.title || props.config.prompt }}</p>
+        <span class="comment-stars">***</span>
+      </div>
+    </div>
+    <div
       v-if="props.config.type === 'menu' && props.config.isVisible"
       :id="props.config.id"
       class="submenu"
@@ -255,7 +256,7 @@ watch(closeAllHelpTimestamp, () => {
       <div class="menu-header">
         <div class="collapse-slot">
           <button
-            v-if="(props.config.children && props.config.children.length > 0) || props.config.isVirtual"
+            v-if="props.config.children && props.config.children.length > 0"
             class="collapse-button"
             @click="toggleCollapse"
             :aria-expanded="!isCollapsed"
@@ -376,6 +377,35 @@ watch(closeAllHelpTimestamp, () => {
   padding: 0;
   margin: 9px 0;
   border-radius: 6px;
+}
+
+.comment-row {
+  margin: 8px 0 10px 28px;
+  padding: 10px 14px;
+  border-left: 2px solid var(--vscode-panel-border, rgba(128, 128, 128, 0.3));
+  border-radius: 6px;
+  background-color: var(--vscode-editorWidget-background, rgba(37, 37, 38, 0.4));
+}
+
+.comment-content {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+}
+
+.comment-stars {
+  color: var(--vscode-descriptionForeground);
+  font-family: var(--vscode-editor-font-family, monospace);
+}
+
+.comment-text {
+  display: inline;
+  margin: 0;
+  color: var(--vscode-descriptionForeground);
+  font-style: normal;
+  line-height: 1.6;
+  white-space: pre-wrap;
+  font-family: var(--vscode-editor-font-family, monospace);
 }
 
 

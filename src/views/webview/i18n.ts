@@ -24,6 +24,7 @@ export interface FrontendI18nKeys {
     // Common buttons
     'common.confirm': string;
     'common.cancel': string;
+    'common.loading': string;
 
     // Reset dialog
     'reset.confirmTitle': string;
@@ -50,6 +51,7 @@ export interface FrontendI18nKeys {
 const zhCN: FrontendI18nKeys = {
     'common.confirm': '确定',
     'common.cancel': '取消',
+    'common.loading': '正在加载配置',
 
     'reset.confirmTitle': '确认重置配置',
     'reset.confirmMessage': '您确定要将所有配置重置为 Kconfig 默认值吗？这将删除当前的 .config 文件并恢复所有配置项到默认状态。此操作无法撤销。',
@@ -71,6 +73,7 @@ const zhCN: FrontendI18nKeys = {
 const enUS: FrontendI18nKeys = {
     'common.confirm': 'Confirm',
     'common.cancel': 'Cancel',
+    'common.loading': 'Loading configuration',
 
     'reset.confirmTitle': 'Confirm Reset Configuration',
     'reset.confirmMessage': 'Are you sure you want to reset all configurations to Kconfig default values? This will delete the current .config file and restore all configuration items to their default state. This action cannot be undone.',

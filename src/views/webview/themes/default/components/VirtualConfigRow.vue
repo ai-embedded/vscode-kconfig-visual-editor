@@ -13,44 +13,103 @@
 -->
 
 <script setup lang="ts">
-import { onBeforeUnmount, onMounted, ref } from "vue";
+import { onBeforeUnmount, onMounted, ref, watch } from "vue";
 import { Menu } from "../../../../../menuconfig/Menu";
 import ConfigElement from "./configElement.vue";
 
 const props = defineProps<{
   config: Menu;
   depth: number;
+  measureEnabled: boolean;
   onHeightChange: (id: string, height: number) => void;
 }>();
 
 const rowRef = ref<HTMLElement | null>(null);
 let resizeObserver: ResizeObserver | null = null;
+let pendingHeightRaf = 0;
+let pendingHeight = 0;
+let lastReportedHeight = 0;
 
 const notifyHeight = (height: number) => {
   if (props.config && props.config.id) {
-    props.onHeightChange(props.config.id, height);
+    const nextHeight = Math.max(1, Math.round(height));
+    if (nextHeight === lastReportedHeight) {
+      return;
+    }
+    lastReportedHeight = nextHeight;
+    props.onHeightChange(props.config.id, nextHeight);
   }
 };
 
-onMounted(() => {
+function flushPendingHeight() {
+  pendingHeightRaf = 0;
+  if (pendingHeight <= 0) {
+    return;
+  }
+  notifyHeight(pendingHeight);
+}
+
+function scheduleHeight(height: number) {
+  pendingHeight = height;
+  if (pendingHeightRaf !== 0) {
+    return;
+  }
+  pendingHeightRaf = window.requestAnimationFrame(() => {
+    flushPendingHeight();
+  });
+}
+
+function stopObserver() {
+  if (resizeObserver && rowRef.value) {
+    resizeObserver.unobserve(rowRef.value);
+  }
+  if (resizeObserver) {
+    resizeObserver.disconnect();
+  }
+  resizeObserver = null;
+}
+
+function startObserver() {
+  if (!props.measureEnabled || resizeObserver || !rowRef.value) {
+    return;
+  }
+
   if (!rowRef.value) {
     return;
   }
 
   resizeObserver = new ResizeObserver((entries) => {
     for (const entry of entries) {
-      notifyHeight(entry.contentRect.height);
+      scheduleHeight(entry.contentRect.height);
     }
   });
 
   resizeObserver.observe(rowRef.value);
+  scheduleHeight(rowRef.value.getBoundingClientRect().height);
+}
+
+watch(
+  () => props.measureEnabled,
+  (enabled) => {
+    if (!enabled) {
+      stopObserver();
+      return;
+    }
+    startObserver();
+  },
+  { immediate: true }
+);
+
+onMounted(() => {
+  startObserver();
 });
 
 onBeforeUnmount(() => {
-  if (resizeObserver && rowRef.value) {
-    resizeObserver.unobserve(rowRef.value);
+  stopObserver();
+  if (pendingHeightRaf !== 0) {
+    window.cancelAnimationFrame(pendingHeightRaf);
+    pendingHeightRaf = 0;
   }
-  resizeObserver = null;
 });
 </script>
 

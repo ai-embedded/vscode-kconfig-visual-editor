@@ -22,12 +22,6 @@
   "config.log.level": "設定日誌級別（除錯、資訊、警告、錯誤）",
   "config.log.outputChannel": "在 VS Code 輸出面板顯示日誌",
 
-  "config.smartLazyLoad.title": "智慧延遲載入",
-  "config.smartLazyLoad.enabled": "啟用智慧延遲載入以提升大型 Kconfig 檔案的效能",
-  "config.smartLazyLoad.threshold": "觸發延遲載入的閾值（選單項數量）",
-  "config.smartLazyLoad.maxDepth": "初始選單樹展開的最大深度",
-  "config.smartLazyLoad.cacheSize": "已載入選單項的快取大小",
-
   "config.validation.title": "驗證",
   "config.validation.checkSymbolReferences": "檢查符號引用是否有效",
   "config.validation.checkDependencies": "驗證配置相依關係",

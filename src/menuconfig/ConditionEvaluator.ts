@@ -44,8 +44,13 @@ export interface ConditionNode {
  * - Literal values (strings, numbers, booleans)
  */
 export class ConditionEvaluator {
+    private static readonly MAX_RESULT_CACHE_SIZE = 20000;
     private context: ConfigContext;
     private astCache: Map<string, ConditionNode> = new Map();
+    private expressionVariableDeps: Map<string, string[]> = new Map();
+    private evaluationCache: Map<string, { signature: string; result: boolean }> = new Map();
+    private contextVersion: number = 0;
+    private symbolVersions: Map<string, number> = new Map();
 
     constructor(context: ConfigContext = {}) {
         this.context = context;
@@ -55,14 +60,29 @@ export class ConditionEvaluator {
      * Update the configuration context
      */
     public updateContext(newContext: ConfigContext): void {
-        this.context = { ...this.context, ...newContext };
+        let hasChanges = false;
+        for (const [key, value] of Object.entries(newContext)) {
+            if (!this.areValuesEqual(this.context[key], value)) {
+                this.context[key] = value;
+                hasChanges = true;
+                this.bumpSymbolVersion(key);
+            }
+        }
+        if (hasChanges) {
+            this.contextVersion += 1;
+        }
     }
 
     /**
      * Set a single configuration value
      */
     public setValue(configName: string, value: any): void {
+        if (this.areValuesEqual(this.context[configName], value)) {
+            return;
+        }
         this.context[configName] = value;
+        this.contextVersion += 1;
+        this.bumpSymbolVersion(configName);
     }
 
     /**
@@ -81,8 +101,22 @@ export class ConditionEvaluator {
         }
 
         try {
-            const ast = this.parseExpression(expression.trim());
-            return this.evaluateNode(ast);
+            const normalized = this.normalizeExpression(expression.trim());
+            const ast = this.parseExpression(normalized);
+
+            const deps = this.expressionVariableDeps.get(normalized) || [];
+            const signature = this.buildExpressionSignature(deps);
+            const cached = this.evaluationCache.get(normalized);
+            if (cached && cached.signature === signature) {
+                return cached.result;
+            }
+
+            const result = this.evaluateNode(ast);
+            if (this.evaluationCache.size >= ConditionEvaluator.MAX_RESULT_CACHE_SIZE) {
+                this.evaluationCache.clear();
+            }
+            this.evaluationCache.set(normalized, { signature, result });
+            return result;
         } catch (error) {
             Logger.warn(`Failed to evaluate condition: ${expression}. Error: ${error}`);
             return true; // Default to visible if evaluation fails
@@ -103,6 +137,7 @@ export class ConditionEvaluator {
                 rawValue: 'true'
             };
             this.astCache.set(normalized, literalTrue);
+            this.expressionVariableDeps.set(normalized, []);
             return literalTrue;
         }
 
@@ -120,6 +155,7 @@ export class ConditionEvaluator {
                 right: this.parseExpression(orMatch.right)
             };
             this.astCache.set(normalized, result);
+            this.expressionVariableDeps.set(normalized, this.collectVariableDeps(result));
             return result;
         }
 
@@ -132,6 +168,7 @@ export class ConditionEvaluator {
                 right: this.parseExpression(andMatch.right)
             };
             this.astCache.set(normalized, result);
+            this.expressionVariableDeps.set(normalized, this.collectVariableDeps(result));
             return result;
         }
 
@@ -142,6 +179,7 @@ export class ConditionEvaluator {
                 left: this.parseExpression(normalized.substring(1).trim())
             };
             this.astCache.set(normalized, result);
+            this.expressionVariableDeps.set(normalized, this.collectVariableDeps(result));
             return result;
         }
 
@@ -155,13 +193,61 @@ export class ConditionEvaluator {
                 operator: comparisonMatch.operator as any
             };
             this.astCache.set(normalized, result);
+            this.expressionVariableDeps.set(normalized, this.collectVariableDeps(result));
             return result;
         }
 
         // Parse literals and variables
         const literalNode = this.parseLiteral(normalized);
         this.astCache.set(normalized, literalNode);
+        this.expressionVariableDeps.set(normalized, this.collectVariableDeps(literalNode));
         return literalNode;
+    }
+
+    private collectVariableDeps(root: ConditionNode): string[] {
+        const deps = new Set<string>();
+        const stack: ConditionNode[] = [root];
+
+        while (stack.length > 0) {
+            const node = stack.pop();
+            if (!node) {
+                continue;
+            }
+            if (node.type === 'VARIABLE' && node.variable) {
+                deps.add(node.variable);
+            }
+            if (node.left) {
+                stack.push(node.left);
+            }
+            if (node.right) {
+                stack.push(node.right);
+            }
+        }
+
+        return Array.from(deps).sort();
+    }
+
+    private buildExpressionSignature(variableNames: string[]): string {
+        if (!variableNames || variableNames.length === 0) {
+            return 'const';
+        }
+        const parts = new Array<string>(variableNames.length + 1);
+        parts[0] = `v${this.contextVersion}`;
+        for (let i = 0; i < variableNames.length; i++) {
+            const name = variableNames[i];
+            const version = this.symbolVersions.get(name) || 0;
+            parts[i + 1] = `${name}:${version}`;
+        }
+        return parts.join('|');
+    }
+
+    private bumpSymbolVersion(symbol: string): void {
+        const prev = this.symbolVersions.get(symbol) || 0;
+        this.symbolVersions.set(symbol, prev + 1);
+    }
+
+    private areValuesEqual(a: any, b: any): boolean {
+        return a === b;
     }
 
     private normalizeExpression(expression: string): string {

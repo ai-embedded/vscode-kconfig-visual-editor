@@ -2,7 +2,7 @@
   "name": "kconfig-visual-editor",
   "displayName": "%displayName%",
   "description": "%description%",
-  "version": "0.2.3",
+  "version": "0.3.0",
   "license": "Apache-2.0",
   "publisher": "flyingcys",
   "icon": "resources/icons/install-complete.png",
@@ -141,6 +141,21 @@
           "default": "~/.env/packages",
           "order": 50,
           "markdownDescription": "%config.rtThread.pkgsDir%"
+        },
+        "kconfig.debug.startup": {
+          "scope": "window",
+          "type": "boolean",
+          "default": false,
+          "order": 200,
+          "description": "Always emit startup timing metrics in webview console."
+        },
+        "kconfig.debug.startupSlowThresholdMs": {
+          "scope": "window",
+          "type": "number",
+          "default": 1500,
+          "minimum": 1,
+          "order": 201,
+          "description": "Slow startup threshold in milliseconds for automatic startup metric emission."
         }
       }
     }

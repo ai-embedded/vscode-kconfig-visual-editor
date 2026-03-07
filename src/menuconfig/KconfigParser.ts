@@ -41,6 +41,9 @@ export interface KconfigParserOptions {
  * 5. Calculates indentation dynamically through parent chain
  */
 export class KconfigParser {
+    private static readonly SOURCE_PREFETCH_BATCH_SIZE = 16;
+    private static readonly SOURCE_PREFETCH_MAX_DEPTH = 2;
+
     private workspaceFolder: string;
     private mainKconfigFile: string;
     private currentId: number = 0;
@@ -53,6 +56,12 @@ export class KconfigParser {
     private fileContentCache: Map<string, string[]> = new Map();
     private expandedVariableCache: Map<string, string> = new Map();
     private allParsedFiles: Set<string> = new Set();
+    private dependencyExprCache: Map<string, ReturnType<ExpressionParser["parse"]>> = new Map();
+    private scheduledPrefetchFiles: Set<string> = new Set();
+    private prefetchTasks: Set<Promise<void>> = new Set();
+    private sourcePrefetchQueue: Array<{ filePath: string; depth: number }> = [];
+    private sourcePrefetchWorkerRunning = false;
+    private allowBackgroundPrefetch = false;
     
     // Performance optimization: Concurrent file processor
     private concurrentProcessor: ConcurrentFileProcessor;
@@ -60,6 +69,7 @@ export class KconfigParser {
     // File opening tracking
     private fileOpenCounter: number = 0;
     private openedFilesList: Array<{index: number, file: string, directive: string, time: Date}> = [];
+    private activeParsingFiles: Set<string> = new Set();
 
     /**
      * Static factory method to create a fully initialized parser
@@ -76,7 +86,7 @@ export class KconfigParser {
         this.exprParser = new ExpressionParser();
 
         // Initialize concurrent file processor
-        this.concurrentProcessor = new ConcurrentFileProcessor(100);
+        this.concurrentProcessor = new ConcurrentFileProcessor(32);
 
         const srctreeEnv = process.env.srctree || process.env.SRCTREE;
         if (srctreeEnv) {
@@ -95,12 +105,27 @@ export class KconfigParser {
         return this.visibilityManager;
     }
 
+    public getParsedFiles(): string[] {
+        return Array.from(this.allParsedFiles);
+    }
+
     /**
      * Main parse method - builds tree and converts to Menu array
      */
     public async parse(): Promise<Menu[]> {
-        Logger.info(`Starting Kconfig parsing from: ${this.mainKconfigFile}`);
+        Logger.info(() => `Starting Kconfig parsing from: ${this.mainKconfigFile}`);
         const _startTime = Date.now();
+        const normalizedMain = path.normalize(this.mainKconfigFile);
+        this.activeParsingFiles.clear();
+        this.activeParsingFiles.add(normalizedMain);
+        this.allParsedFiles.clear();
+        this.allParsedFiles.add(normalizedMain);
+        this.dependencyExprCache.clear();
+        this.scheduledPrefetchFiles.clear();
+        this.prefetchTasks.clear();
+        this.sourcePrefetchQueue = [];
+        this.sourcePrefetchWorkerRunning = false;
+        this.allowBackgroundPrefetch = true;
         
         try {
             // Step 1: Build complete node tree (including if nodes)
@@ -136,13 +161,17 @@ export class KconfigParser {
             this.buildSelectRelationships(menus);
             
             const _endTime = Date.now();
-            Logger.info(`Parsing completed in ${_endTime - _startTime}ms`);
-            Logger.info(`Total menus parsed: ${menus.length}`);
+            Logger.info(() => `Parsing completed in ${_endTime - _startTime}ms`);
+            Logger.info(() => `Total menus parsed: ${menus.length}`);
             
             return menus;
         } catch (error) {
             Logger.error(`Error parsing Kconfig: ${error}`);
             throw error;
+        } finally {
+            this.allowBackgroundPrefetch = false;
+            this.sourcePrefetchQueue = [];
+            this.activeParsingFiles.clear();
         }
     }
 
@@ -280,10 +309,6 @@ export class KconfigParser {
             // Handle if blocks
             if (line.startsWith('if ')) {
                 const condition = line.substring(3).trim();
-                Logger.info(`[IF_BLOCK] ====== Found if block at line ${i + 1} ======`);
-                Logger.info(`[IF_BLOCK] Condition: "${condition}"`);
-                Logger.info(`[IF_BLOCK] File: ${currentFile}`);
-                Logger.info(`[IF_BLOCK] Parent: ${parent.toString()}`);
 
                 // Create if node
                 const ifNode = new MenuNode();
@@ -296,16 +321,9 @@ export class KconfigParser {
                 ifNode.linenr = i + 1;
 
                 parent.addChild(ifNode);
-                Logger.info(`[IF_BLOCK] Created if node and added to parent`);
 
                 // Parse if block contents recursively
-                Logger.info(`[IF_BLOCK] Parsing if block contents starting from line ${i + 2}`);
                 const nextIndex = await this.parseLines(lines, ifNode, currentFile, i + 1, 'endif');
-                Logger.info(`[IF_BLOCK] ====== if block ended at line ${nextIndex} ======`);
-                Logger.info(`[IF_BLOCK] if node now has ${ifNode.getChildren().length} children`);
-                if (ifNode.getChildren().length > 0) {
-                    Logger.info(`[IF_BLOCK] First child: ${ifNode.getChildren()[0].toString()}`);
-                }
                 i = nextIndex;
                 continue;
             }
@@ -313,19 +331,6 @@ export class KconfigParser {
             // Handle menu blocks
             if (line.startsWith('menu ')) {
                 const title = this.extractQuotedString(line.substring(5));
-
-                // Enhanced debug logging for menu parsing
-                Logger.info(`[MENU_BLOCK] ====== Found menu at line ${i + 1} ======`);
-                Logger.info(`[MENU_BLOCK] Title: "${title}"`);
-                Logger.info(`[MENU_BLOCK] File: ${currentFile}`);
-                Logger.info(`[MENU_BLOCK] Parent: ${parent.toString()}`);
-                Logger.info(`[MENU_BLOCK] Parent type: ${parent.node_type}`);
-
-                // Check if this menu is inside an if block
-                if (parent.isIfNode()) {
-                    Logger.info(`[MENU_BLOCK] *** This menu is INSIDE an if block! ***`);
-                    Logger.info(`[MENU_BLOCK] if condition: ${parent.dep}`);
-                }
 
                 const menuNode = new MenuNode();
                 menuNode.node_type = 'menu';
@@ -344,20 +349,22 @@ export class KconfigParser {
                     hasPrompt: true,  // Menu nodes have a title, so they have a prompt
                 });
 
-                Logger.info(`[MENU_BLOCK] Created menu node:`);
-                Logger.info(`[MENU_BLOCK]   - node_type: ${menuNode.node_type}`);
-                Logger.info(`[MENU_BLOCK]   - is_menuconfig: ${menuNode.is_menuconfig}`);
-                Logger.info(`[MENU_BLOCK]   - item.type: ${menuNode.item.type}`);
-                Logger.info(`[MENU_BLOCK]   - item.isMenuconfig: ${menuNode.item.isMenuconfig}`);
-
                 parent.addChild(menuNode);
-                Logger.info(`[MENU_BLOCK] Added menu as child of ${parent.toString()}`);
 
                 // Parse menu contents
-                Logger.info(`[MENU_BLOCK] Parsing menu contents from line ${i + 2}`);
                 i = await this.parseLines(lines, menuNode, currentFile, i + 1, 'endmenu');
-                Logger.info(`[MENU_BLOCK] ====== Menu parsing ended at line ${i} ======`);
-                Logger.info(`[MENU_BLOCK] Menu now has ${menuNode.getChildren().length} children`);
+                continue;
+            }
+
+            // Handle comment entries
+            if (line.startsWith('comment ')) {
+                const commentNode = await this.parseComment(lines, i, currentFile);
+                if (commentNode) {
+                    parent.addChild(commentNode);
+                    i = commentNode.nextIndex || i + 1;
+                } else {
+                    i++;
+                }
                 continue;
             }
             
@@ -394,12 +401,38 @@ export class KconfigParser {
                 line.startsWith('osource ') || line.startsWith('orsource ')) {
                 const sourceResult = await this.parseSource(line, currentFile);
                 if (sourceResult) {
-////console.log(`[parseLines] Loading ${sourceResult.files.length} file(s) from source directive`);
-                for (const sourceFile of sourceResult.files) {
-////console.log(`[parseLines] Loading source file: ${sourceFile}`);
-                        const sourceLines = await this.readFile(sourceFile);
-////console.log(`[parseLines] Read ${sourceLines.length} lines from ${sourceFile}`);
-                        await this.parseLines(sourceLines, parent, sourceFile);
+                    const sourceFiles = this.deduplicateSourceFiles(sourceResult.files);
+                    await this.preloadSourceFiles(sourceFiles, line);
+////console.log(`[parseLines] Loading ${sourceFiles.length} file(s) from source directive`);
+                    for (const sourceFile of sourceFiles) {
+                        const normalizedSource = path.normalize(sourceFile);
+                        if (this.activeParsingFiles.has(normalizedSource)) {
+                            Logger.warn(`Detected recursive source include, skipping: ${normalizedSource}`);
+                            continue;
+                        }
+                        this.fileOpenCounter++;
+                        this.openedFilesList.push({
+                            index: this.fileOpenCounter,
+                            file: normalizedSource,
+                            directive: line,
+                            time: new Date(),
+                        });
+                        this.allParsedFiles.add(normalizedSource);
+////console.log(`[parseLines] Loading source file: ${normalizedSource}`);
+                        const sourceLines = await this.readFile(normalizedSource);
+////console.log(`[parseLines] Read ${sourceLines.length} lines from ${normalizedSource}`);
+                        if (sourceLines.length === 0) {
+                            if (!sourceResult.optional) {
+                                Logger.warn(`Source file not found or empty: ${normalizedSource}`);
+                            }
+                            continue;
+                        }
+                        this.activeParsingFiles.add(normalizedSource);
+                        try {
+                            await this.parseLines(sourceLines, parent, normalizedSource);
+                        } finally {
+                            this.activeParsingFiles.delete(normalizedSource);
+                        }
                     }
                 } else {
                     Logger.warn(`Source directive failed: ${line}`);
@@ -479,7 +512,7 @@ export class KconfigParser {
             // DFS_USING_POSIX) to be missing.
             // Note: choice can be standalone (anonymous) or have a name.
             if (
-                line.match(/^(config|menuconfig|menu|if)\s/) ||
+                line.match(/^(config|menuconfig|menu|if|comment)\s/) ||
                 line === 'choice' ||
                 line.startsWith('choice ') ||
                 line.startsWith('source ') ||
@@ -634,18 +667,8 @@ export class KconfigParser {
                     if (!menu.selectConditions) menu.selectConditions = {};
                     menu.selectConditions[selectTarget] = cond;
                 }
-                Logger.info(`[SELECT_PARSE] ${_configName} selects ${selectTarget}${cond ? ` if ${cond}` : ''}`);
-
-                // Debug for critical configs
-                if (_configName === 'RT_USING_POSIX_FS' && selectTarget === 'DFS_USING_POSIX') {
-                    Logger.info(`[SELECT_PARSE] *** CRITICAL: RT_USING_POSIX_FS selects DFS_USING_POSIX ***`);
-                }
-
-                // Also store in node for verification
                 if (!node.item) {
                     Logger.error(`[SELECT_PARSE] ERROR: node.item is null for ${_configName}`);
-                } else if (node.item.select) {
-                    Logger.info(`[SELECT_PARSE] node.item.select array now has ${node.item.select.length} items`);
                 }
             }
 
@@ -739,6 +762,100 @@ export class KconfigParser {
         // For regular config nodes, visibility depends on having a prompt
         menu.isVisible = isMenuconfig ? true : hasPrompt;
         
+        node.nextIndex = i;
+        return node;
+    }
+
+    /**
+     * Parse a comment entry.
+     * Supports:
+     *   comment "text" [if CONDITION]
+     *   depends on CONDITION
+     */
+    private async parseComment(lines: string[], startIndex: number, currentFile: string): Promise<MenuNode | null> {
+        const firstLine = lines[startIndex].trim();
+        if (!firstLine.startsWith("comment ")) {
+            return null;
+        }
+
+        const title = this.extractQuotedString(firstLine.substring("comment ".length));
+
+        const node = new MenuNode();
+        node.node_type = "comment";
+        node.is_menuconfig = false;
+        node.filename = currentFile;
+        node.linenr = startIndex + 1;
+
+        const menu: Menu = this.createMenu({
+            name: "",
+            title,
+            prompt: title,
+            type: menuType.comment,
+            isMenuconfig: false,
+            hasPrompt: true,
+            isVisible: true,
+            linenr: startIndex + 1,
+        });
+        node.item = menu;
+
+        const firstQuote = firstLine.indexOf('"');
+        const secondQuote = firstLine.indexOf('"', firstQuote + 1);
+        let promptCond = "y";
+        if (secondQuote !== -1) {
+            const after = firstLine.substring(secondQuote + 1).trim();
+            if (after.startsWith("if ")) {
+                promptCond = after.substring(3).trim();
+            }
+        }
+        node.prompt = [title, promptCond];
+        if (promptCond !== "y") {
+            node.dep = promptCond;
+            menu.dependsOn = promptCond;
+        }
+
+        let i = startIndex + 1;
+        while (i < lines.length) {
+            const line = lines[i].trim();
+
+            if (!line || line.startsWith("#")) {
+                i++;
+                continue;
+            }
+
+            if (
+                line.match(/^(config|menuconfig|menu|if|comment)\s/) ||
+                line === "choice" ||
+                line.startsWith("choice ") ||
+                line.startsWith("source ") ||
+                line.startsWith("rsource ") ||
+                line.startsWith("osource ") ||
+                line.startsWith("orsource ")
+            ) {
+                break;
+            }
+
+            if (
+                line === "endif" ||
+                line === "endmenu" ||
+                line === "endchoice" ||
+                line.startsWith("endif ") ||
+                line.startsWith("endmenu ") ||
+                line.startsWith("endchoice ")
+            ) {
+                break;
+            }
+
+            if (line.startsWith("depends on ")) {
+                const dep = line.substring("depends on ".length).trim();
+                node.dep = this.andExpr(node.dep, dep) ?? dep;
+                menu.dependsOn = node.dep || "";
+                i++;
+                continue;
+            }
+
+            i++;
+        }
+
         node.nextIndex = i;
         return node;
     }
@@ -858,6 +975,17 @@ export class KconfigParser {
                 }
                 continue;
             }
+
+            if (line.startsWith('comment ')) {
+                const commentNode = await this.parseComment(lines, i, currentFile);
+                if (commentNode) {
+                    node.addChild(commentNode);
+                    i = commentNode.nextIndex || i + 1;
+                } else {
+                    i++;
+                }
+                continue;
+            }
             
             i++;
         }
@@ -928,13 +1056,6 @@ export class KconfigParser {
         const parent = nodeToFlatten.parent;
         const firstChild = nodeToFlatten.list;
 
-        // Debug logging for if block flattening
-        if (nodeToFlatten.isIfNode()) {
-            Logger.info(`[FLATTEN_IF] ======== Flattening if node ========`);
-            Logger.info(`[FLATTEN_IF] Condition: ${nodeToFlatten.dep}`);
-            Logger.info(`[FLATTEN_IF] Node has ${nodeToFlatten.getChildren().length} children`);
-        }
-
         // Update all children
         let child: MenuNode | null = firstChild;
         let lastChild: MenuNode = firstChild;
@@ -946,8 +1067,6 @@ export class KconfigParser {
             if (nodeToFlatten.dep) {
                 if (nodeToFlatten.isIfNode()) {
                     // If 节点：仅传播依赖，不产生额外缩进
-                    Logger.info(`[FLATTEN_IF] Processing child "${child.item?.title || child.item?.name || 'unnamed'}"`);
-
                     // Store if dependency separately
                     if (child.if_dep) {
                         // Merge with existing if_dep
@@ -970,9 +1089,6 @@ export class KconfigParser {
                     } else {
                         child.dep = nodeToFlatten.dep;
                     }
-
-                    Logger.info(`[FLATTEN_IF]   - if_dep: ${child.if_dep}`);
-                    Logger.info(`[FLATTEN_IF]   - dep: ${child.dep}`);
 
                     // 不递归增加任何 if 缩进层级
                 } else {
@@ -1003,10 +1119,6 @@ export class KconfigParser {
             child = child.next;
         }
 
-        if (nodeToFlatten.isIfNode()) {
-            Logger.info(`[FLATTEN_IF] ======== if node flattening complete ========`);
-        }
-        
         // Reconnect the node chain
         if (parent.list === nodeToFlatten) {
             // nodeToFlatten is the first child of parent
@@ -1150,11 +1262,6 @@ export class KconfigParser {
                     dependencyOwners.add(child.item.name);
                 }
 
-                // Log menuconfig detection for debugging
-                if (child.is_menuconfig || child.item.isMenuconfig) {
-                    Logger.info(`[IMPLICIT_MENU] Found menuconfig: "${child.item.name}" (type: ${child.node_type}, is_menuconfig: ${child.is_menuconfig})`);
-                }
-
                 // Check consecutive nodes that immediately follow
                 while (cur.next) {
                     const nextNode = cur.next;
@@ -1175,13 +1282,15 @@ export class KconfigParser {
                     let shouldBecomeChild = false;
                     if (dependency && dependencyOwners.size > 0) {
                         try {
-                            const expr = this.exprParser.parse(dependency);
+                            const cacheKey = dependency.trim();
+                            let expr = this.dependencyExprCache.get(cacheKey);
+                            if (!expr) {
+                                expr = this.exprParser.parse(cacheKey);
+                                this.dependencyExprCache.set(cacheKey, expr);
+                            }
                             for (const owner of dependencyOwners) {
                                 if (this.exprParser.exprDependsOn(expr, owner)) {
                                     shouldBecomeChild = true;
-                                    Logger.info(`[IMPLICIT_MENU] Dependency check PASSED: "${nextNode.item?.name || nextNode.item?.title}" depends on "${owner}"`);
-                                    Logger.info(`[IMPLICIT_MENU]   - Dependency expression: "${dependency}"`);
-                                    Logger.info(`[IMPLICIT_MENU]   - Next node type: ${nextNode.node_type}, has prompt: ${!!nextNode.prompt}`);
                                     break;
                                 }
                             }
@@ -1203,20 +1312,15 @@ export class KconfigParser {
 
                 // If we found consecutive dependent nodes, move them under child
                 if (cur !== child) {
-                    Logger.info(`[IMPLICIT_MENU] *** Creating implicit submenu under "${child.item.name}" ***`);
-
                     // Move nodes from child.next to cur (inclusive) under child
                     const firstDependent = child.next;
                     const lastDependent = cur;
                     const afterLast = cur.next;
 
-                    Logger.info(`[IMPLICIT_MENU] Moving ${this.countNodes(firstDependent, lastDependent)} node(s) as children`);
-
                     // Update parent pointers
                     let temp = firstDependent;
                     while (temp) {
                         temp.parent = child;
-                        Logger.info(`[IMPLICIT_MENU]   - Moved: "${temp.item?.name || temp.item?.title || 'unnamed'}" to be child of "${child.item.name}"`);
                         if (temp === lastDependent) break;
                         temp = temp.next;
                     }
@@ -1227,8 +1331,6 @@ export class KconfigParser {
                     // Set up child's children
                     child.list = firstDependent;
                     lastDependent!.next = null;
-
-                    Logger.info(`[IMPLICIT_MENU] *** Implicit submenu creation complete for "${child.item.name}" ***`);
                 }
             }
 
@@ -1239,20 +1341,6 @@ export class KconfigParser {
 
             child = child.next;
         }
-    }
-
-    /**
-     * Count nodes in a linked list from start to end (inclusive)
-     */
-    private countNodes(start: MenuNode | null, end: MenuNode | null): number {
-        let count = 0;
-        let current = start;
-        while (current) {
-            count++;
-            if (current === end) break;
-            current = current.next;
-        }
-        return count;
     }
 
     /**
@@ -1352,48 +1440,21 @@ export class KconfigParser {
         if (node.item) {
             const menu = node.item;
 
-            // Enhanced debug logging for menu vs menuconfig
-            Logger.info(`[MENU_CONVERT] Converting: ${menu.title || menu.name}`);
-            Logger.info(`[MENU_CONVERT]   - type: ${menu.type}`);
-            Logger.info(`[MENU_CONVERT]   - isMenuconfig: ${menu.isMenuconfig}`);
-            Logger.info(`[MENU_CONVERT]   - node.is_menuconfig: ${node.is_menuconfig}`);
-            Logger.info(`[MENU_CONVERT]   - node.node_type: ${node.node_type}`);
-            Logger.info(`[MENU_CONVERT]   - has children: ${node.list !== null}`);
-
             // Calculate indentation dynamically
             menu.indentLevel = node.calculateIndent();
-            Logger.info(`[MENU_CONVERT]   - indentLevel: ${menu.indentLevel}`);
-
-            // Generate enhanced help information (matching Kconfiglib)
-            if (!menu.menuPath) {
-                menu.menuPath = this.generateMenuPath(node);
-            }
-            if (node.linenr && !menu.linenr) {
-                menu.linenr = node.linenr;
-            }
-            if (node.dep && !menu.directDepExpr) {
-                menu.directDepExpr = this.formatDepExpression(node.dep);
-            }
-            // Set prompt if not already set
-            if (!menu.prompt && menu.title) {
-                menu.prompt = menu.title;
-            }
 
             // CRITICAL FIX: Set shouldIndentChildren for nodes with children
             // This is required for proper indentation in the frontend
             if (node.list) {
                 // For menuconfig and config nodes with children, enable child indentation
                 menu.shouldIndentChildren = true;
-                Logger.info(`[MENU_CONVERT]   - shouldIndentChildren: SET TO TRUE (has children)`);
             } else {
                 menu.shouldIndentChildren = false;
-                Logger.info(`[MENU_CONVERT]   - shouldIndentChildren: SET TO FALSE (no children)`);
             }
 
             // Ensure isCollapsed is properly set for menuconfig items
             if (menu.isMenuconfig) {
                 menu.isCollapsed = menu.isCollapsed ?? false;
-                Logger.info(`[MENU_CONVERT]   - isCollapsed: ${menu.isCollapsed}`);
             }
 
             // Add to parent's children array
@@ -1403,31 +1464,15 @@ export class KconfigParser {
             if (node.list) {
                 menu.children = [];
                 let child: MenuNode | null = node.list;
-                let childCount = 0;
-                Logger.info(`[MENU_CONVERT]   - Processing children...`);
                 while (child) {
                     if (child.item) {
-                        Logger.info(`[MENU_CONVERT]     - Child ${childCount}: ${child.item.name || child.item.title}`);
                         // Recursively process child
                         this.convertChildNode(child, menu.children);
-                        childCount++;
                     }
                     child = child.next as MenuNode | null;
                 }
-                Logger.info(`[MENU_CONVERT]   - Total children: ${menu.children.length}`);
             }
         }
-    }
-
-    /**
-     * Parse virtual node children (for lazy loading support)
-     * This is a placeholder for compatibility with existing code
-     */
-    public async parseVirtualNodeChildren(menu: Menu): Promise<Menu[]> {
-        // For now, return empty array
-        // This will be implemented when lazy loading support is re-added
-        Logger.info(`parseVirtualNodeChildren called for ${menu.name}, returning empty array`);
-        return [];
     }
 
     // ========== Helper Methods ==========
@@ -1474,42 +1519,6 @@ export class KconfigParser {
     }
 
     /**
-     * Generate menu path string from node's parent chain (matching Kconfiglib's _menu_path_info)
-     */
-    private generateMenuPath(node: MenuNode): string {
-        let path = "";
-        let current: MenuNode | null = node.parent;
-
-        while (current) {
-            if (current.prompt && current.prompt[0]) {
-                // Has a prompt, use it
-                path = " -> " + current.prompt[0] + path;
-            } else if (current.item && current.item.title) {
-                // No prompt but has title (from item)
-                path = " -> " + current.item.title + path;
-            } else if (current.item && current.item.name) {
-                // Use name as fallback
-                path = " -> " + current.item.name + path;
-            }
-            current = current.parent;
-        }
-
-        return "(Top)" + path;
-    }
-
-    /**
-     * Format dependency expression for display
-     */
-    private formatDepExpression(depExpr: string | null): string {
-        if (!depExpr || depExpr === 'y') {
-            return '';
-        }
-        // For now, return the raw expression
-        // In a full implementation, this would split && and || operators
-        return depExpr;
-    }
-
-    /**
      * Read a file and return its lines
      */
     private async readFile(filepath: string): Promise<string[]> {
@@ -1524,10 +1533,15 @@ export class KconfigParser {
             
             // Cache the content
             this.fileContentCache.set(filepath, lines);
+            this.scheduleSourcePrefetch(lines, filepath, 0);
             
             return lines;
         } catch (error) {
-            Logger.error(`Failed to read file ${filepath}: ${error}`);
+            const err = error as NodeJS.ErrnoException;
+            if (err && err.code === "ENOENT") {
+                return [];
+            }
+            Logger.warn(`Failed to read file ${filepath}: ${error}`);
             return [];
         }
     }
@@ -1535,7 +1549,11 @@ export class KconfigParser {
     /**
      * Parse source directive and return resolved file paths
      */
-    private async parseSource(line: string, currentFile: string): Promise<{ files: string[] } | null> {
+    private async parseSource(
+        line: string,
+        currentFile: string,
+        options?: { suppressWarnings?: boolean }
+    ): Promise<{ files: string[]; optional: boolean } | null> {
         const match = line.match(/^(source|rsource|osource|orsource)\s+"?([^"]+)"?/);
         if (!match) {
             return null;
@@ -1563,17 +1581,17 @@ export class KconfigParser {
         // 判断是否包含通配符
         if (hasMagic(sourcePath)) {
             try {
-                const files = (await glob(resolvedPattern, { nodir: true }))
+                const files = this.deduplicateSourceFiles((await glob(resolvedPattern, { nodir: true }))
                     .map(file => path.normalize(file))
-                    .sort((a, b) => a.localeCompare(b));
+                    .sort((a, b) => a.localeCompare(b)));
                 
-                if (files.length === 0 && !optional) {
+                if (files.length === 0 && !optional && !options?.suppressWarnings) {
                     Logger.warn(`Source directive matched zero files: ${resolvedPattern}`);
                     return null;
                 }
-                return { files };
+                return { files, optional };
             } catch (error) {
-                if (!optional) {
+                if (!optional && !options?.suppressWarnings) {
                     Logger.warn(`Failed to glob ${resolvedPattern}: ${error}`);
                 }
                 return null;
@@ -1581,12 +1599,159 @@ export class KconfigParser {
         } else {
             // Single file
             const normalizedPath = path.normalize(resolvedPattern);
-            if (fs.existsSync(normalizedPath)) {
-                return { files: [normalizedPath] };
-            } else if (!optional) {
-                Logger.warn(`Source file not found: ${normalizedPath}`);
+            return { files: this.deduplicateSourceFiles([normalizedPath]), optional };
+        }
+    }
+
+    private collectSourceDirectives(lines: string[]): string[] {
+        if (!lines || lines.length === 0) {
+            return [];
+        }
+
+        const directives: string[] = [];
+        for (const rawLine of lines) {
+            const line = rawLine.trim();
+            if (
+                line &&
+                (line.startsWith("source ") || line.startsWith("rsource ") || line.startsWith("osource ") || line.startsWith("orsource ")) &&
+                !line.includes("$(")
+            ) {
+                directives.push(line);
             }
-            return null;
+        }
+        return directives;
+    }
+
+    private scheduleSourcePrefetch(lines: string[], currentFile: string, depth: number): void {
+        if (!this.allowBackgroundPrefetch) {
+            return;
+        }
+        if (!lines || lines.length === 0 || depth >= KconfigParser.SOURCE_PREFETCH_MAX_DEPTH) {
+            return;
+        }
+
+        const directives = this.collectSourceDirectives(lines);
+        if (directives.length === 0) {
+            return;
+        }
+
+        const task = (async () => {
+            const nextDepth = depth + 1;
+            for (const directive of directives) {
+                const sourceResult = await this.parseSource(directive, currentFile, { suppressWarnings: true });
+                if (!sourceResult || !sourceResult.files || sourceResult.files.length === 0) {
+                    continue;
+                }
+                for (const sourceFile of sourceResult.files) {
+                    const normalized = path.normalize(sourceFile);
+                    if (this.fileContentCache.has(normalized)) {
+                        continue;
+                    }
+                    if (this.scheduledPrefetchFiles.has(normalized)) {
+                        continue;
+                    }
+                    this.scheduledPrefetchFiles.add(normalized);
+                    this.sourcePrefetchQueue.push({ filePath: normalized, depth: nextDepth });
+                }
+            }
+            this.ensureSourcePrefetchWorker();
+        })().catch((error) => {
+            Logger.debugSource(() => `[SOURCE_PREFETCH] Failed to schedule prefetch for ${currentFile}: ${error}`);
+        });
+
+        this.prefetchTasks.add(task);
+        task.finally(() => {
+            this.prefetchTasks.delete(task);
+        }).catch(() => undefined);
+    }
+
+    private ensureSourcePrefetchWorker(): void {
+        if (this.sourcePrefetchWorkerRunning || !this.allowBackgroundPrefetch) {
+            return;
+        }
+
+        const task = (async () => {
+            this.sourcePrefetchWorkerRunning = true;
+            try {
+                while (this.allowBackgroundPrefetch && this.sourcePrefetchQueue.length > 0) {
+                    const batch = this.sourcePrefetchQueue.splice(0, KconfigParser.SOURCE_PREFETCH_BATCH_SIZE);
+                    const filePaths = batch.map((entry) => entry.filePath);
+                    const depthByFile = new Map<string, number>();
+                    for (const entry of batch) {
+                        const previousDepth = depthByFile.get(entry.filePath);
+                        if (previousDepth === undefined || entry.depth < previousDepth) {
+                            depthByFile.set(entry.filePath, entry.depth);
+                        }
+                    }
+
+                    const preloaded = await this.concurrentProcessor.readFilesAsync(filePaths);
+                    if (!this.allowBackgroundPrefetch) {
+                        break;
+                    }
+                    for (const [filePath, content] of preloaded.entries()) {
+                        if (this.fileContentCache.has(filePath)) {
+                            continue;
+                        }
+                        const lines = content.split("\n");
+                        this.fileContentCache.set(filePath, lines);
+
+                        const currentDepth = depthByFile.get(filePath) ?? KconfigParser.SOURCE_PREFETCH_MAX_DEPTH;
+                        if (currentDepth < KconfigParser.SOURCE_PREFETCH_MAX_DEPTH) {
+                            this.scheduleSourcePrefetch(lines, filePath, currentDepth);
+                        }
+                    }
+                }
+            } finally {
+                this.sourcePrefetchWorkerRunning = false;
+                if (this.allowBackgroundPrefetch && this.sourcePrefetchQueue.length > 0) {
+                    this.ensureSourcePrefetchWorker();
+                }
+            }
+        })();
+
+        this.prefetchTasks.add(task);
+        task.finally(() => {
+            this.prefetchTasks.delete(task);
+        }).catch(() => undefined);
+    }
+
+    private deduplicateSourceFiles(files: string[]): string[] {
+        if (!files || files.length <= 1) {
+            return files;
+        }
+        const seen = new Set<string>();
+        const deduped: string[] = [];
+        for (const file of files) {
+            const normalized = path.normalize(file);
+            if (seen.has(normalized)) {
+                continue;
+            }
+            seen.add(normalized);
+            deduped.push(normalized);
+        }
+        return deduped;
+    }
+
+    private async preloadSourceFiles(files: string[], directive: string): Promise<void> {
+        if (!files || files.length <= 1) {
+            return;
+        }
+        const uncachedFiles = files.filter(file => !this.fileContentCache.has(file));
+        if (uncachedFiles.length <= 1) {
+            return;
+        }
+        try {
+            const preloaded = await this.concurrentProcessor.readFilesAsync(uncachedFiles);
+            preloaded.forEach((content, filePath) => {
+                if (!this.fileContentCache.has(filePath)) {
+                    const lines = content.split('\n');
+                    this.fileContentCache.set(filePath, lines);
+                    this.scheduleSourcePrefetch(lines, filePath, 1);
+                }
+            });
+            Logger.debugParser(`[SOURCE_PRELOAD] Preloaded ${preloaded.size}/${uncachedFiles.length} files for directive: ${directive}`);
+        } catch (error) {
+            Logger.warn(`Failed to preload source files for directive "${directive}": ${error}`);
         }
     }
 
@@ -1803,10 +1968,7 @@ export class KconfigParser {
      * This is called after converting to Menu array for compatibility.
      */
     private buildSelectRelationships(menus: Menu[]): void {
-        Logger.info('[MENU_SELECT_RELATIONSHIPS] Building select relationships in Menu array...');
-
         const allMenus = this.flattenMenus(menus);
-        Logger.info(`[MENU_SELECT_RELATIONSHIPS] Found ${allMenus.length} total menus (including nested)`);
 
         // Build menu map for quick lookup
         const menuMap = new Map<string, Menu>();
@@ -1814,16 +1976,6 @@ export class KconfigParser {
             if (menu.name) {
                 menuMap.set(menu.name, menu);
                 Logger.debugParser(`[MENU_SELECT_RELATIONSHIPS] Mapped menu: ${menu.name} (has select: ${menu.select.length > 0})`);
-
-                // Special logging for critical configs
-                if (menu.name === 'RT_USING_POSIX_FS') {
-                    Logger.info(`[MENU_SELECT_RELATIONSHIPS] *** Found RT_USING_POSIX_FS ***`);
-                    Logger.info(`[MENU_SELECT_RELATIONSHIPS]   - select targets: [${menu.select.join(', ')}]`);
-                }
-                if (menu.name === 'DFS_USING_POSIX') {
-                    Logger.info(`[MENU_SELECT_RELATIONSHIPS] *** Found DFS_USING_POSIX ***`);
-                    Logger.info(`[MENU_SELECT_RELATIONSHIPS]   - selectedBy (before processing): [${menu.selectedBy.join(', ')}]`);
-                }
             }
         }
 
@@ -1833,11 +1985,6 @@ export class KconfigParser {
             if (menu.select.length > 0) {
                 Logger.debugParser(`[MENU_SELECT_RELATIONSHIPS] Processing ${menu.name} select targets: [${menu.select.join(', ')}]`);
 
-                // Special logging for RT_USING_POSIX_FS
-                if (menu.name === 'RT_USING_POSIX_FS') {
-                    Logger.info(`[MENU_SELECT_RELATIONSHIPS] *** Processing RT_USING_POSIX_FS select statements ***`);
-                }
-
                 for (const selectTarget of menu.select) {
                     const targetMenu = menuMap.get(selectTarget);
                     if (targetMenu) {
@@ -1845,11 +1992,6 @@ export class KconfigParser {
                             targetMenu.selectedBy.push(menu.name);
                             selectRelationshipsFound++;
                             Logger.debugParser(`[MENU_SELECT_RELATIONSHIPS] Added relation: ${selectTarget} selected by ${menu.name}`);
-
-                            // Special logging for DFS_USING_POSIX
-                            if (selectTarget === 'DFS_USING_POSIX' && menu.name === 'RT_USING_POSIX_FS') {
-                                Logger.info(`[MENU_SELECT_RELATIONSHIPS] *** CRITICAL: Added selectedBy relationship: DFS_USING_POSIX selected by RT_USING_POSIX_FS ***`);
-                            }
                         }
                     } else {
                         Logger.warn(`[MENU_SELECT_RELATIONSHIPS] WARNING: Select target ${selectTarget} not found for selector ${menu.name}`);
@@ -1862,31 +2004,7 @@ export class KconfigParser {
                 }
             }
         }
-
-        Logger.info(`[MENU_SELECT_RELATIONSHIPS] Built ${selectRelationshipsFound} select relationships`);
-
-        // Log final summary of selected items
-        const selectedItems = allMenus.filter(menu => menu.selectedBy.length > 0);
-        Logger.info(`[MENU_SELECT_RELATIONSHIPS] Summary: ${selectedItems.length} items are selected by others:`);
-        selectedItems.forEach(menu => {
-            Logger.info(`[MENU_SELECT_RELATIONSHIPS]   ${menu.name} selected by: [${menu.selectedBy.join(', ')}]`);
-        });
-
-        // Final check for DFS_USING_POSIX
-        const dfsUsingPosix = menuMap.get('DFS_USING_POSIX');
-        if (dfsUsingPosix) {
-            Logger.info(`[MENU_SELECT_RELATIONSHIPS] *** Final DFS_USING_POSIX status ***`);
-            Logger.info(`[MENU_SELECT_RELATIONSHIPS]   - selectedBy: [${dfsUsingPosix.selectedBy.join(', ')}]`);
-        } else {
-            Logger.error(`[MENU_SELECT_RELATIONSHIPS] *** ERROR: DFS_USING_POSIX not found in final check! ***`);
-        }
-
-        // 额外检查：RT_USING_HOOKLIST
-        const hookList = menuMap.get('RT_USING_HOOKLIST');
-        if (hookList) {
-            Logger.info(`[MENU_SELECT_RELATIONSHIPS] *** Final RT_USING_HOOKLIST status ***`);
-            Logger.info(`[MENU_SELECT_RELATIONSHIPS]   - selectedBy: [${hookList.selectedBy.join(', ')}]`);
-        }
+        Logger.debugParser(`[MENU_SELECT_RELATIONSHIPS] Built ${selectRelationshipsFound} select relationships`);
     }
     
     /**

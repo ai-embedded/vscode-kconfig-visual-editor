@@ -34,7 +34,7 @@ export class MenuNode {
     
     // Node metadata
     is_menuconfig: boolean = false;                 // Whether this is a menuconfig node
-    node_type: 'if' | 'menu' | 'config' | 'choice' | 'menuconfig' | null = null;
+    node_type: 'if' | 'menu' | 'config' | 'choice' | 'menuconfig' | 'comment' | null = null;
     
     // Source tracking
     filename: string | null = null;                 // Source file where this node was defined

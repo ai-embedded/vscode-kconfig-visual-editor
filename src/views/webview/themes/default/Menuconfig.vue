@@ -173,18 +173,48 @@ const flatIndexMap = computed(() => {
 });
 
 const itemHeights = ref(new Map<string, number>());
+const pendingHeightUpdates = new Map<string, number>();
+let heightFlushRaf = 0;
+
+function flushHeightUpdates() {
+  heightFlushRaf = 0;
+  if (pendingHeightUpdates.size === 0) {
+    return;
+  }
+
+  let nextMap: Map<string, number> | null = null;
+  for (const [id, nextHeight] of pendingHeightUpdates.entries()) {
+    const currentHeight = itemHeights.value.get(id);
+    if (currentHeight === nextHeight) {
+      continue;
+    }
+    if (!nextMap) {
+      nextMap = new Map(itemHeights.value);
+    }
+    nextMap.set(id, nextHeight);
+  }
+  pendingHeightUpdates.clear();
+
+  if (nextMap) {
+    itemHeights.value = nextMap;
+  }
+}
+
+function scheduleHeightFlush() {
+  if (heightFlushRaf !== 0) {
+    return;
+  }
+  heightFlushRaf = window.requestAnimationFrame(() => {
+    flushHeightUpdates();
+  });
+}
 
 function handleHeightChange(id: string, height: number) {
   if (!id || height <= 0) {
     return;
   }
-  const current = itemHeights.value.get(id);
-  if (current === height) {
-    return;
-  }
-  const nextMap = new Map(itemHeights.value);
-  nextMap.set(id, height);
-  itemHeights.value = nextMap;
+  pendingHeightUpdates.set(id, height);
+  scheduleHeightFlush();
 }
 
 const heightMeta = computed(() => {
@@ -264,6 +294,11 @@ const totalHeight = computed(() => heightMeta.value.totalHeight);
 
 watch(flatItems, (newItems) => {
   const validIds = new Set(newItems.map((item) => item.id));
+  for (const key of pendingHeightUpdates.keys()) {
+    if (!validIds.has(key)) {
+      pendingHeightUpdates.delete(key);
+    }
+  }
   const nextMap = new Map<string, number>();
   itemHeights.value.forEach((height, id) => {
     if (validIds.has(id)) {
@@ -337,7 +372,30 @@ function updateViewportHeight() {
   if (!scrollContainer.value) {
     return;
   }
-  viewportHeight.value = scrollContainer.value.clientHeight;
+  scheduleViewportHeightUpdate(scrollContainer.value.clientHeight);
+}
+
+let viewportHeightRaf = 0;
+let pendingViewportHeight = 0;
+
+function flushViewportHeightUpdate() {
+  viewportHeightRaf = 0;
+  if (pendingViewportHeight <= 0) {
+    return;
+  }
+  if (viewportHeight.value !== pendingViewportHeight) {
+    viewportHeight.value = pendingViewportHeight;
+  }
+}
+
+function scheduleViewportHeightUpdate(nextHeight: number) {
+  pendingViewportHeight = nextHeight;
+  if (viewportHeightRaf !== 0) {
+    return;
+  }
+  viewportHeightRaf = window.requestAnimationFrame(() => {
+    flushViewportHeightUpdate();
+  });
 }
 
 function handleMouseDown(e: MouseEvent) {
@@ -375,14 +433,12 @@ function handleMouseUp() {
 }
 
 onMounted(() => {
-  store.requestInitValues();
-
   nextTick(() => {
     updateViewportHeight();
     if (scrollContainer.value) {
       const observer = new ResizeObserver((entries) => {
         for (const entry of entries) {
-          viewportHeight.value = entry.contentRect.height;
+          scheduleViewportHeightUpdate(entry.contentRect.height);
         }
       });
       observer.observe(scrollContainer.value);
@@ -396,8 +452,19 @@ onMounted(() => {
 });
 
 onUnmounted(() => {
+  if (heightFlushRaf !== 0) {
+    window.cancelAnimationFrame(heightFlushRaf);
+    heightFlushRaf = 0;
+  }
+  if (viewportHeightRaf !== 0) {
+    window.cancelAnimationFrame(viewportHeightRaf);
+    viewportHeightRaf = 0;
+  }
   if (resizeObserver.value && scrollContainer.value) {
     resizeObserver.value.unobserve(scrollContainer.value);
+  }
+  if (resizeObserver.value) {
+    resizeObserver.value.disconnect();
   }
   window.removeEventListener("resize", updateViewportHeight);
   window.removeEventListener("mousemove", handleMouseMove);
@@ -434,6 +501,7 @@ onUnmounted(() => {
               :key="item.id"
               :config="item.config"
               :depth="item.depth"
+              :measure-enabled="!store.initialLoadInProgress"
               :on-height-change="handleHeightChange"
             />
           </div>

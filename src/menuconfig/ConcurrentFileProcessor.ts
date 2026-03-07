@@ -59,11 +59,9 @@ export class ConcurrentFileProcessor {
                 const filePath = chunk[index];
                 if (result.status === 'fulfilled' && result.value !== null) {
                     results.set(filePath, result.value);
-                } else {
+                } else if (result.status === 'rejected') {
                     Logger.warn(`[CONCURRENT_PROCESSOR] 无法读取文件: ${filePath}`);
-                    if (result.status === 'rejected') {
-                        Logger.error(`[CONCURRENT_PROCESSOR] 读取错误: ${result.reason}`);
-                    }
+                    Logger.error(`[CONCURRENT_PROCESSOR] 读取错误: ${result.reason}`);
                 }
             });
         }
@@ -118,10 +116,6 @@ export class ConcurrentFileProcessor {
         }
         
         try {
-            if (!fs.existsSync(filePath)) {
-                return null;
-            }
-            
             const content = await fs.promises.readFile(filePath, 'utf8');
             
             // 缓存内容
@@ -129,6 +123,9 @@ export class ConcurrentFileProcessor {
             
             return content;
         } catch (error) {
+            if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
+                return null;
+            }
             if (retryCount < ConcurrentFileProcessor.MAX_RETRIES) {
                 Logger.warn(`[CONCURRENT_PROCESSOR] 重试读取文件 ${filePath} (第 ${retryCount + 1} 次)`);
                 await this.sleep(100 * (retryCount + 1)); // 递增延迟

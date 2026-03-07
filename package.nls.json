@@ -22,12 +22,6 @@
   "config.log.level": "Set the logging level (debug, info, warning, error)",
   "config.log.outputChannel": "Show logs in VS Code output panel",
 
-  "config.smartLazyLoad.title": "Smart Lazy Loading",
-  "config.smartLazyLoad.enabled": "Enable smart lazy loading to improve performance with large Kconfig files",
-  "config.smartLazyLoad.threshold": "Number of menu items threshold for triggering lazy loading",
-  "config.smartLazyLoad.maxDepth": "Maximum depth for initial menu tree expansion",
-  "config.smartLazyLoad.cacheSize": "Cache size for loaded menu items",
-
   "config.validation.title": "Validation",
   "config.validation.checkSymbolReferences": "Verify that symbol references are valid",
   "config.validation.checkDependencies": "Validate configuration dependencies",

@@ -46,9 +46,6 @@ const canToggleMenu = computed(() => {
   if (!isMenuRow.value) {
     return false;
   }
-  if (props.row.item.isVirtual === true && props.row.item.childrenParsed !== true) {
-    return true;
-  }
   return props.row.hasChildren === true;
 });
 
@@ -94,7 +91,7 @@ const helpIndentStyle = computed(() => ({
 }));
 
 const hasHelp = computed(() => {
-  if (isMenuRow.value) {
+  if (isMenuRow.value || isCommentRow.value) {
     return false;
   }
   const item = props.row.item;
@@ -296,14 +293,6 @@ function toggleMenu() {
   }
   const next = !collapsed.value;
   updateCollapseState(next);
-  if (
-    !next &&
-    props.row.item.isVirtual &&
-    !props.row.item.childrenParsed
-  ) {
-    const targetId = props.row.item.id || props.row.id;
-    store.loadVirtualNodeContent(targetId);
-  }
 }
 
 function onPropertyContentClick(event: MouseEvent) {
@@ -336,10 +325,6 @@ function onMenuConfigToggle(event: Event) {
 
   if (value) {
     updateCollapseState(false);
-    if (props.row.item.isVirtual && !props.row.item.childrenParsed) {
-      const targetId = props.row.item.id || props.row.id;
-      store.loadVirtualNodeContent(targetId);
-    }
   } else {
     updateCollapseState(true);
   }
@@ -621,140 +606,148 @@ function toNumericHex(value: string): number {
     ]"
     v-show="!hidden"
   >
-    <div class="table-cell property-col">
-      <div
-        class="property-content"
-        :class="{ 'menu-clickable': isMenuRow }"
-        :style="indentStyle"
-        @click="onPropertyContentClick"
-      >
-        <button
-          v-if="isMenuRow"
-          class="expand-icon"
-          type="button"
-          :aria-expanded="canToggleMenu ? !collapsed : undefined"
-          :disabled="!canToggleMenu"
-          @click.stop="toggleMenu"
-        >
-          {{ expandIcon }}
-        </button>
-        <span class="property-name">{{ propertyLabel }}</span>
-        <span v-if="isReadonly" class="readonly-tag" :title="readonlyReason">LOCK</span>
-        <button v-if="hasHelp" class="help-icon" type="button" @click.stop="toggleHelp">?</button>
+    <template v-if="isCommentRow">
+      <div class="table-cell comment-full-col">
+        <div class="comment-content" :style="indentStyle">
+          <span class="comment-stars">***</span>
+          <span class="comment-text">{{ props.row.item.title || props.row.item.prompt }}</span>
+          <span class="comment-stars">***</span>
+        </div>
       </div>
-    </div>
-    <div class="table-cell value-col">
-      <template v-if="isMenuRow">
-        <label v-if="isMenuConfig" class="toggle-switch">
-          <input
-            type="checkbox"
-            :checked="boolValue"
-            :disabled="isReadonly"
-            @change="onMenuConfigToggle"
-          />
-          <span class="toggle-slider"></span>
-        </label>
-      </template>
-      <template v-else-if="isBoolRow">
-        <label class="toggle-switch">
-          <input
-            type="checkbox"
-            :checked="boolValue"
-            :disabled="isReadonly"
-            @change="onBooleanToggle"
-          />
-          <span class="toggle-slider"></span>
-        </label>
-      </template>
-      <template v-else-if="isTristateRow">
-        <select
-          class="select-input"
-          :value="triValue"
-          :disabled="isTriSelectDisabled"
-          @change="onTriValueChange"
+    </template>
+    <template v-else>
+      <div class="table-cell property-col">
+        <div
+          class="property-content"
+          :class="{ 'menu-clickable': isMenuRow }"
+          :style="indentStyle"
+          @click="onPropertyContentClick"
         >
-          <option
-            v-for="option in triSelectOptions"
-            :key="option.value"
-            :value="option.value"
-            :disabled="option.disabled"
+          <button
+            v-if="isMenuRow"
+            class="expand-icon"
+            type="button"
+            :aria-expanded="canToggleMenu ? !collapsed : undefined"
+            :disabled="!canToggleMenu"
+            @click.stop="toggleMenu"
           >
-            {{ option.value }}
-          </option>
-        </select>
-      </template>
-      <template v-else-if="isIntRow">
-        <div class="number-input-wrapper">
-          <input
-            class="text-input number-input"
-            type="number"
-            :min="rangeMin"
-            :max="rangeMax"
-            :value="numberValue"
-            :disabled="isReadonly"
-            @change="onNumberCommit($event)"
-            @blur="onNumberCommit($event)"
-            @keydown.enter.prevent="onNumberCommit($event)"
-          />
-          <div class="number-arrows">
-            <button type="button" @click="onNumberStep(1)" :disabled="isReadonly">▲</button>
-            <button type="button" @click="onNumberStep(-1)" :disabled="isReadonly">▼</button>
-          </div>
+            {{ expandIcon }}
+          </button>
+          <span class="property-name">{{ propertyLabel }}</span>
+          <span v-if="isReadonly" class="readonly-tag" :title="readonlyReason">LOCK</span>
+          <button v-if="hasHelp" class="help-icon" type="button" @click.stop="toggleHelp">?</button>
         </div>
-      </template>
-      <template v-else-if="isHexRow">
-        <div class="hex-input-wrapper">
+      </div>
+      <div class="table-cell value-col">
+        <template v-if="isMenuRow">
+          <label v-if="isMenuConfig" class="toggle-switch">
+            <input
+              type="checkbox"
+              :checked="boolValue"
+              :disabled="isReadonly"
+              @change="onMenuConfigToggle"
+            />
+            <span class="toggle-slider"></span>
+          </label>
+        </template>
+        <template v-else-if="isBoolRow">
+          <label class="toggle-switch">
+            <input
+              type="checkbox"
+              :checked="boolValue"
+              :disabled="isReadonly"
+              @change="onBooleanToggle"
+            />
+            <span class="toggle-slider"></span>
+          </label>
+        </template>
+        <template v-else-if="isTristateRow">
+          <select
+            class="select-input"
+            :value="triValue"
+            :disabled="isTriSelectDisabled"
+            @change="onTriValueChange"
+          >
+            <option
+              v-for="option in triSelectOptions"
+              :key="option.value"
+              :value="option.value"
+              :disabled="option.disabled"
+            >
+              {{ option.value }}
+            </option>
+          </select>
+        </template>
+        <template v-else-if="isIntRow">
+          <div class="number-input-wrapper">
+            <input
+              class="text-input number-input"
+              type="number"
+              :min="rangeMin"
+              :max="rangeMax"
+              :value="numberValue"
+              :disabled="isReadonly"
+              @change="onNumberCommit($event)"
+              @blur="onNumberCommit($event)"
+              @keydown.enter.prevent="onNumberCommit($event)"
+            />
+            <div class="number-arrows">
+              <button type="button" @click="onNumberStep(1)" :disabled="isReadonly">▲</button>
+              <button type="button" @click="onNumberStep(-1)" :disabled="isReadonly">▼</button>
+            </div>
+          </div>
+        </template>
+        <template v-else-if="isHexRow">
+          <div class="hex-input-wrapper">
+            <input
+              class="text-input hex-input"
+              type="text"
+              :value="hexValue"
+              :disabled="isReadonly"
+              @change="onHexCommit($event)"
+              @blur="onHexCommit($event)"
+              @keydown.enter.prevent="onHexCommit($event)"
+            />
+            <div class="number-arrows">
+              <button type="button" @click="onHexStep(1)" :disabled="isReadonly">▲</button>
+              <button type="button" @click="onHexStep(-1)" :disabled="isReadonly">▼</button>
+            </div>
+          </div>
+        </template>
+        <template v-else-if="isStringRow">
           <input
-            class="text-input hex-input"
+            class="text-input string-input"
             type="text"
-            :value="hexValue"
+            :value="stringValue"
             :disabled="isReadonly"
-            @change="onHexCommit($event)"
-            @blur="onHexCommit($event)"
-            @keydown.enter.prevent="onHexCommit($event)"
+            @input="onStringInput"
+            @change="onStringCommit"
+            @blur="onStringCommit"
           />
-          <div class="number-arrows">
-            <button type="button" @click="onHexStep(1)" :disabled="isReadonly">▲</button>
-            <button type="button" @click="onHexStep(-1)" :disabled="isReadonly">▼</button>
-          </div>
-        </div>
-      </template>
-      <template v-else-if="isStringRow">
-        <input
-          class="text-input string-input"
-          type="text"
-          :value="stringValue"
-          :disabled="isReadonly"
-          @input="onStringInput"
-          @change="onStringCommit"
-          @blur="onStringCommit"
-        />
-      </template>
-      <template v-else-if="isChoiceRow">
-        <select
-          class="select-input"
-          ref="choiceSelectRef"
-          :value="choiceValue"
-          :disabled="isReadonly"
-          @change="onChoiceChange"
-          :style="{ width: choiceSelectWidth, maxWidth: '100%' }"
-        >
-          <option
-            v-for="option in choiceOptions"
-            :key="option.id || option.name"
-            :value="option.name"
+        </template>
+        <template v-else-if="isChoiceRow">
+          <select
+            class="select-input"
+            ref="choiceSelectRef"
+            :value="choiceValue"
+            :disabled="isReadonly"
+            @change="onChoiceChange"
+            :style="{ width: choiceSelectWidth, maxWidth: '100%' }"
           >
-            {{ option.title }}
-          </option>
-        </select>
-      </template>
-      <template v-else-if="isCommentRow">
-        <span class="comment-text">{{ props.row.item.title || props.row.item.prompt }}</span>
-      </template>
-      <template v-else>
-        <span class="plain-value">{{ props.row.item.value }}</span>
-      </template>
-    </div>
+            <option
+              v-for="option in choiceOptions"
+              :key="option.id || option.name"
+              :value="option.name"
+            >
+              {{ option.title }}
+            </option>
+          </select>
+        </template>
+        <template v-else>
+          <span class="plain-value">{{ props.row.item.value }}</span>
+        </template>
+      </div>
+    </template>
   </div>
   <div v-if="helpVisible && hasHelp" class="help-row" :style="helpIndentStyle">
     <p><strong>Name:</strong> {{ props.row.item.name }}</p>
@@ -788,8 +781,7 @@ function toNumericHex(value: string): number {
 }
 
 .table-row.comment-row {
-  font-style: italic;
-  color: var(--text-secondary);
+  background-color: var(--bg-secondary);
 }
 
 .table-row.readonly .property-name {
@@ -816,6 +808,27 @@ function toNumericHex(value: string): number {
   min-width: 160px;
   padding-left: 20px;
   justify-content: flex-start;
+}
+
+.table-cell.comment-full-col {
+  flex: 1 1 100%;
+  border-right: none;
+  padding: 8px 0;
+}
+
+.comment-content {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  width: 100%;
+  padding-top: 1px;
+  padding-bottom: 1px;
+  padding-right: 16px;
+}
+
+.comment-stars {
+  color: var(--text-secondary);
+  font-family: var(--vscode-editor-font-family, monospace);
 }
 
 .property-content {
@@ -1055,6 +1068,10 @@ function toNumericHex(value: string): number {
 
 .comment-text {
   color: var(--text-secondary);
+  font-style: normal;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  font-family: var(--vscode-editor-font-family, monospace);
 }
 
 .plain-value {

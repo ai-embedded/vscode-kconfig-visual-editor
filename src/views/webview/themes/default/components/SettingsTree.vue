@@ -13,7 +13,7 @@
 -->
 
 <script setup lang="ts">
-import { computed, ref, onMounted, watch } from 'vue';
+import { computed, ref, watch } from 'vue';
 import TreeNode from './TreeNode.vue';
 import { useMenuconfigStore } from "../../../store";
 import { Menu } from "../../../../../menuconfig/Menu";
@@ -23,6 +23,7 @@ interface TreeItem {
   label: string;
   value: string;
   open: boolean;
+  hasChildren: boolean;
   subItems: TreeItem[];
   isVisible?: boolean;
   isMainMenu?: boolean;
@@ -39,39 +40,103 @@ const emit = defineEmits<{
 const store = useMenuconfigStore();
 const openStates = ref<Record<string, boolean>>({});
 
-// Initialize open states - all menus default to expanded
-const initializeOpenStates = (items: Menu[]) => {
-  if (!items) return;
-  items.forEach(item => {
-    if (item && item.type === "menu" && item.isVisible !== false) {
-      // All menus default to expanded
-      openStates.value[item.id] = true;
-      if (item.children && item.children.length > 0) {
-        initializeOpenStates(item.children);
-      }
-    }
-  });
+const isMainMenuItem = (item: Menu): boolean => {
+  return item.isMainMenu === true || item.name === "__MAINMENU__" || item.id.startsWith("mainmenu-");
 };
 
-// Process menu items - make sure to initialize first
-const processMenuItems = (items: Menu[]): TreeItem[] => {
-  // Ensure openStates are initialized before processing
-  if (Object.keys(openStates.value).length === 0 && items.length > 0) {
-    initializeOpenStates(items);
+const getDefaultOpenState = (item: Menu): boolean => {
+  if (isMainMenuItem(item)) {
+    return true;
   }
-  
+  return false;
+};
+
+const collectAndSyncOpenStates = (items: Menu[]) => {
+  const nextStates: Record<string, boolean> = {};
+
+  const traverse = (menus: Menu[]) => {
+    if (!menus) {
+      return;
+    }
+    menus.forEach((menu) => {
+      if (!menu) {
+        return;
+      }
+      if (menu.type === "menu" && menu.isVisible !== false) {
+        const previous = openStates.value[menu.id];
+        nextStates[menu.id] = typeof previous === "boolean" ? previous : getDefaultOpenState(menu);
+      }
+      if (menu.children && menu.children.length > 0) {
+        traverse(menu.children);
+      }
+    });
+  };
+
+  traverse(items);
+  openStates.value = nextStates;
+};
+
+const findMenuPath = (
+  menus: Menu[],
+  targetId: string,
+  ancestorMenuIds: string[] = []
+): string[] | null => {
+  for (const menu of menus) {
+    const isMenuNode = menu.type === "menu" && menu.isVisible !== false;
+    const nextAncestors = isMenuNode ? [...ancestorMenuIds, menu.id] : ancestorMenuIds;
+
+    if (menu.id === targetId) {
+      return nextAncestors;
+    }
+
+    if (menu.children && menu.children.length > 0) {
+      const path = findMenuPath(menu.children, targetId, nextAncestors);
+      if (path) {
+        return path;
+      }
+    }
+  }
+  return null;
+};
+
+const expandPathForSelection = (targetId: string) => {
+  if (!targetId) {
+    return;
+  }
+  const path = findMenuPath(props.data, targetId);
+  if (!path || path.length === 0) {
+    return;
+  }
+  const nextStates = { ...openStates.value };
+  path.forEach((id) => {
+    nextStates[id] = true;
+  });
+  openStates.value = nextStates;
+};
+
+const getVisibleChildMenus = (menu: Menu): Menu[] => {
+  if (!menu.children || menu.children.length === 0) {
+    return [];
+  }
+  return menu.children.filter((child) => child.type === "menu" && child.isVisible !== false);
+};
+
+const processMenuItems = (items: Menu[]): TreeItem[] => {
   return items
     .filter(item => item.type === "menu" && item.isVisible !== false)
     .map(item => {
-      const isMainMenu = Boolean(item.name === "__MAINMENU__" || item.id.startsWith("mainmenu-"));
+      const isMainMenu = isMainMenuItem(item);
+      const childMenus = getVisibleChildMenus(item);
+      const open = isMainMenu ? true : (openStates.value[item.id] ?? false);
       return {
         id: item.id,
         label: item.title,
         value: item.id,
-        open: openStates.value[item.id] ?? true, // all menus default to expanded
+        open,
+        hasChildren: childMenus.length > 0,
         isVisible: item.isVisible,
         isMainMenu: isMainMenu,
-        subItems: item.children ? processMenuItems(item.children) : []
+        subItems: open ? processMenuItems(childMenus) : []
       };
     });
 };
@@ -94,6 +159,22 @@ const treeData = computed(() => {
 });
 
 const selectedMenu = computed(() => store.selectedMenu);
+
+watch(
+  () => props.data,
+  (newItems) => {
+    collectAndSyncOpenStates(newItems || []);
+    expandPathForSelection(store.selectedMenu);
+  },
+  { immediate: true }
+);
+
+watch(
+  selectedMenu,
+  (newSelectedId) => {
+    expandPathForSelection(newSelectedId);
+  }
+);
 </script>
 
 <template>

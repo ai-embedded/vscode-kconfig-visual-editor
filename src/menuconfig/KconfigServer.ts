@@ -19,6 +19,7 @@ import * as vscode from "vscode";
 import * as fs from "fs";
 import { Menu, menuType } from "./Menu";
 import { KconfigMenuLoader } from "./KconfigMenuLoader";
+import { createMenuDetailPayload, MenuDetailPayload } from "./MenuTransferSerializer";
 import { Logger } from "../logger/logger";
 import { VisibilityManager } from "./VisibilityManager";
 import { FileWatcher } from "./fileWatcher";
@@ -36,6 +37,30 @@ export interface KconfigValue {
     type: menuType;
 }
 
+interface MenuStateSnapshot {
+    type: menuType;
+    value: any;
+    isVisible?: boolean;
+    isContainerVisible?: boolean;
+    isReadonly?: boolean;
+    readonlyReason?: string;
+    selectedBy?: string[];
+    autoSelectedValue?: boolean;
+    autoImpliedValue?: 'y' | 'm' | boolean;
+}
+
+interface MenuDeltaChange {
+    id: string;
+    isVisible?: boolean;
+    isContainerVisible?: boolean;
+    isReadonly?: boolean;
+    readonlyReason?: string;
+    selectedBy?: string[];
+    autoSelectedValue?: boolean;
+    autoImpliedValue?: 'y' | 'm' | boolean;
+    value?: any;
+}
+
 export class KconfigServer extends EventEmitter {
     private static instance: KconfigServer | null = null;
     
@@ -50,7 +75,11 @@ export class KconfigServer extends EventEmitter {
     private unsavedChanges: boolean = false;
     private visibilityManager: VisibilityManager;
     private kconfigWriter: KconfigWriter;
-    private menuLoader?: KconfigMenuLoader;
+    private menuIndex: Map<string, Menu> = new Map();
+    private menuNameIndex: Map<string, Menu[]> = new Map();
+    private choiceParentByChildId: Map<string, Menu> = new Map();
+    private menuParentByChildId: Map<string, string | null> = new Map();
+    private menuStateCache: Map<string, MenuStateSnapshot> = new Map();
     
     constructor(options: KconfigServerOptions) {
         super();
@@ -94,11 +123,11 @@ export class KconfigServer extends EventEmitter {
         // Load Kconfig structure using the specific file
         const targetFile = vscode.Uri.file(this.kconfigFile);
         const loader = new KconfigMenuLoader(this.workspaceFolder, targetFile);
-        this.menuLoader = loader; // Save the loader instance for reuse
         this.kconfigMenus = await loader.loadKconfigMenus();
         
         // Save default values from Kconfig
         this.saveDefaultValues(this.kconfigMenus);
+        this.rebuildMenuCaches();
         
         // Load existing config values if available
         if (fs.existsSync(this.configFile)) {
@@ -106,174 +135,12 @@ export class KconfigServer extends EventEmitter {
         }
         
         // Initialize visibility manager with loaded menus
-        Logger.info(`[KCONFIG_SERVER] Initializing visibility manager with ${this.kconfigMenus.length} menus`);
+        Logger.info(() => `[KCONFIG_SERVER] Initializing visibility manager with ${this.kconfigMenus.length} menus`);
         this.visibilityManager.initialize(this.kconfigMenus);
+        this.forceTopLevelMenusVisible(this.kconfigMenus);
 
-        // Debug: Check DFS_USING_POSIX status after initialization
-        const findMenuByName = (menus: Menu[], name: string): Menu | null => {
-            for (const menu of menus) {
-                if (menu.name === name) return menu;
-                if (menu.children) {
-                    const found = findMenuByName(menu.children, name);
-                    if (found) return found;
-                }
-            }
-            return null;
-        };
-
-        const dfsUsingPosix = findMenuByName(this.kconfigMenus, 'DFS_USING_POSIX');
-        const rtUsingPosixFs = findMenuByName(this.kconfigMenus, 'RT_USING_POSIX_FS');
-        const rtUsingHookList = findMenuByName(this.kconfigMenus, 'RT_USING_HOOKLIST');
-        const rtUsingSmallMem = findMenuByName(this.kconfigMenus, 'RT_USING_SMALL_MEM');
-        const rtUsingSlab = findMenuByName(this.kconfigMenus, 'RT_USING_SLAB');
-        const rtUsingSmallMemAsHeap = findMenuByName(this.kconfigMenus, 'RT_USING_SMALL_MEM_AS_HEAP');
-        const rtUsingFdt = findMenuByName(this.kconfigMenus, 'RT_USING_FDT');
-        const rtUsingFdtLib = findMenuByName(this.kconfigMenus, 'RT_USING_FDTLIB');
-        const rtUsingSlabAsHeap = findMenuByName(this.kconfigMenus, 'RT_USING_SLAB_AS_HEAP');
-
-        Logger.info(`[KCONFIG_SERVER] After initialize:`);
-        if (dfsUsingPosix) {
-            Logger.info(`[KCONFIG_SERVER]   DFS_USING_POSIX:`);
-            Logger.info(`[KCONFIG_SERVER]     - value: ${dfsUsingPosix.value}`);
-            Logger.info(`[KCONFIG_SERVER]     - selectedBy: [${dfsUsingPosix.selectedBy?.join(', ') || 'none'}]`);
-            Logger.info(`[KCONFIG_SERVER]     - isReadonly: ${dfsUsingPosix.isReadonly}`);
-            Logger.info(`[KCONFIG_SERVER]     - readonlyReason: ${dfsUsingPosix.readonlyReason || 'none'}`);
-        } else {
-            Logger.info(`[KCONFIG_SERVER]   DFS_USING_POSIX: NOT FOUND`);
-        }
-        if (rtUsingSmallMem || rtUsingSlab) {
-            Logger.info(`[KCONFIG_SERVER]   Memory allocators:`);
-            if (rtUsingSmallMem) Logger.info(`[KCONFIG_SERVER]     - RT_USING_SMALL_MEM: ${rtUsingSmallMem.value}`);
-            if (rtUsingSlab) Logger.info(`[KCONFIG_SERVER]     - RT_USING_SLAB: ${rtUsingSlab.value}`);
-            if (rtUsingSmallMemAsHeap) Logger.info(`[KCONFIG_SERVER]     - RT_USING_SMALL_MEM_AS_HEAP: ${rtUsingSmallMemAsHeap.value}`);
-            if (rtUsingSlabAsHeap) Logger.info(`[KCONFIG_SERVER]     - RT_USING_SLAB_AS_HEAP: ${rtUsingSlabAsHeap.value}`);
-            const heapChoice = this.findParentChoice('RT_USING_SMALL_MEM_AS_HEAP') || this.findParentChoice('RT_USING_SLAB_AS_HEAP');
-            if (heapChoice) {
-                Logger.info(`[KCONFIG_SERVER]     - HEAP CHOICE selected: ${heapChoice.value}`);
-            }
-        }
-
-        if (rtUsingPosixFs) {
-            Logger.info(`[KCONFIG_SERVER]   RT_USING_POSIX_FS:`);
-            Logger.info(`[KCONFIG_SERVER]     - value: ${rtUsingPosixFs.value}`);
-            Logger.info(`[KCONFIG_SERVER]     - select: [${rtUsingPosixFs.select?.join(', ') || 'none'}]`);
-        } else {
-            Logger.info(`[KCONFIG_SERVER]   RT_USING_POSIX_FS: NOT FOUND`);
-        }
-
-        if (rtUsingHookList) {
-            Logger.info(`[KCONFIG_SERVER]   RT_USING_HOOKLIST:`);
-            Logger.info(`[KCONFIG_SERVER]     - value: ${rtUsingHookList.value}`);
-            Logger.info(`[KCONFIG_SERVER]     - selectedBy: [${rtUsingHookList.selectedBy?.join(', ') || 'none'}]`);
-            Logger.info(`[KCONFIG_SERVER]     - isReadonly: ${rtUsingHookList.isReadonly}`);
-            Logger.info(`[KCONFIG_SERVER]     - readonlyReason: ${rtUsingHookList.readonlyReason || 'none'}`);
-        }
-
-        if (rtUsingFdt || rtUsingFdtLib) {
-            Logger.info(`[KCONFIG_SERVER]   FDT legacy block (before visibility update):`);
-            if (rtUsingFdt) Logger.info(`[KCONFIG_SERVER]     - RT_USING_FDT: value=${rtUsingFdt.value}, dependsOn=${rtUsingFdt.dependsOn || 'y'}`);
-            if (rtUsingFdtLib) Logger.info(`[KCONFIG_SERVER]     - RT_USING_FDTLIB: value=${rtUsingFdtLib.value}, dependsOn=${rtUsingFdtLib.dependsOn || 'y'}`);
-        }
-
-        // Apply initial visibility calculations
-        Logger.info(`[KCONFIG_SERVER] Calling updateValue("", null) for initial visibility`);
-
-        // Check if menus are the same reference
-        const beforeUpdate = this.kconfigMenus;
-        const afterUpdate = this.visibilityManager.updateValue("", null);
-
-        Logger.info(`[KCONFIG_SERVER] Menu reference check:`);
-        Logger.info(`[KCONFIG_SERVER]   - Same reference: ${beforeUpdate === afterUpdate}`);
-        Logger.info(`[KCONFIG_SERVER]   - beforeUpdate length: ${beforeUpdate.length}`);
-        Logger.info(`[KCONFIG_SERVER]   - afterUpdate length: ${afterUpdate.length}`);
-
-        // Use the updated menus (they should be the same reference, but let's be safe)
-        this.kconfigMenus = afterUpdate;
-
-        // Debug: Check DFS_USING_POSIX status after updateValue
-        const dfsUsingPosixAfter = findMenuByName(this.kconfigMenus, 'DFS_USING_POSIX');
-        const rtUsingPosixFsAfter = findMenuByName(this.kconfigMenus, 'RT_USING_POSIX_FS');
-        const rtUsingHookListAfter = findMenuByName(this.kconfigMenus, 'RT_USING_HOOKLIST');
-        const smallMemAfter = findMenuByName(this.kconfigMenus, 'RT_USING_SMALL_MEM');
-        const slabAfter = findMenuByName(this.kconfigMenus, 'RT_USING_SLAB');
-        const smallMemHeapAfter = findMenuByName(this.kconfigMenus, 'RT_USING_SMALL_MEM_AS_HEAP');
-        const slabHeapAfter = findMenuByName(this.kconfigMenus, 'RT_USING_SLAB_AS_HEAP');
-        const rtUsingFdtAfter = findMenuByName(this.kconfigMenus, 'RT_USING_FDT');
-        const rtUsingFdtLibAfter = findMenuByName(this.kconfigMenus, 'RT_USING_FDTLIB');
-
-        Logger.info(`[KCONFIG_SERVER] After updateValue("", null):`);
-        if (dfsUsingPosixAfter) {
-            Logger.info(`[KCONFIG_SERVER]   DFS_USING_POSIX:`);
-            Logger.info(`[KCONFIG_SERVER]     - value: ${dfsUsingPosixAfter.value}`);
-            Logger.info(`[KCONFIG_SERVER]     - selectedBy: [${dfsUsingPosixAfter.selectedBy?.join(', ') || 'none'}]`);
-            Logger.info(`[KCONFIG_SERVER]     - isReadonly: ${dfsUsingPosixAfter.isReadonly}`);
-            Logger.info(`[KCONFIG_SERVER]     - readonlyReason: ${dfsUsingPosixAfter.readonlyReason || 'none'}`);
-        }
-
-        if (rtUsingPosixFsAfter) {
-            Logger.info(`[KCONFIG_SERVER]   RT_USING_POSIX_FS:`);
-            Logger.info(`[KCONFIG_SERVER]     - value: ${rtUsingPosixFsAfter.value}`);
-            Logger.info(`[KCONFIG_SERVER]     - select: [${rtUsingPosixFsAfter.select?.join(', ') || 'none'}]`);
-        }
-
-        if (rtUsingHookListAfter) {
-            Logger.info(`[KCONFIG_SERVER]   RT_USING_HOOKLIST:`);
-            Logger.info(`[KCONFIG_SERVER]     - value: ${rtUsingHookListAfter.value}`);
-            Logger.info(`[KCONFIG_SERVER]     - selectedBy: [${rtUsingHookListAfter.selectedBy?.join(', ') || 'none'}]`);
-            Logger.info(`[KCONFIG_SERVER]     - isReadonly: ${rtUsingHookListAfter.isReadonly}`);
-            Logger.info(`[KCONFIG_SERVER]     - readonlyReason: ${rtUsingHookListAfter.readonlyReason || 'none'}`);
-        }
-
-        if (rtUsingFdtAfter || rtUsingFdtLibAfter) {
-            Logger.info(`[KCONFIG_SERVER]   FDT legacy block (after visibility update):`);
-            if (rtUsingFdtAfter) Logger.info(`[KCONFIG_SERVER]     - RT_USING_FDT: value=${rtUsingFdtAfter.value}`);
-            if (rtUsingFdtLibAfter) Logger.info(`[KCONFIG_SERVER]     - RT_USING_FDTLIB: value=${rtUsingFdtLibAfter.value}`);
-        }
-        if (smallMemAfter || slabAfter) {
-            Logger.info(`[KCONFIG_SERVER]   Memory allocators (after update):`);
-            if (smallMemAfter) Logger.info(`[KCONFIG_SERVER]     - RT_USING_SMALL_MEM: ${smallMemAfter.value}`);
-            if (slabAfter) Logger.info(`[KCONFIG_SERVER]     - RT_USING_SLAB: ${slabAfter.value}`);
-            if (smallMemHeapAfter) Logger.info(`[KCONFIG_SERVER]     - RT_USING_SMALL_MEM_AS_HEAP: ${smallMemHeapAfter.value}`);
-            if (slabHeapAfter) Logger.info(`[KCONFIG_SERVER]     - RT_USING_SLAB_AS_HEAP: ${slabHeapAfter.value}`);
-            const heapChoiceAfter = this.findParentChoice('RT_USING_SMALL_MEM_AS_HEAP') || this.findParentChoice('RT_USING_SLAB_AS_HEAP');
-            if (heapChoiceAfter) {
-                Logger.info(`[KCONFIG_SERVER]     - HEAP CHOICE selected: ${heapChoiceAfter.value}`);
-            }
-        }
-
-        // Defensive fix: ensure top-level menu blocks (no deps) are visible
-        // The refactor to the new parser introduced cases where some menu nodes
-        // (e.g., "RT-Thread Kernel", "RT-Thread Components", "General Drivers Configuration")
-        // were incorrectly marked invisible. These top-level containers should
-        // always be visible when they have a prompt and no explicit dependency.
-        const forceTopLevelMenusVisible = (menus: Menu[]) => {
-            menus.forEach((m) => {
-                if (m.type === menuType.menu && m.hasPrompt && (!m.dependsOn || m.dependsOn.trim() === "")) {
-                    m.isVisible = true;
-                    // Acts as a container in the UI
-                    (m as any).isContainerVisible = true;
-                }
-            });
-        };
-        forceTopLevelMenusVisible(this.kconfigMenus);
-
-        // Final check of DFS_USING_POSIX status
-        const dfsUsingPosixFinal = findMenuByName(this.kconfigMenus, 'DFS_USING_POSIX');
-        const rtUsingHookListFinal = findMenuByName(this.kconfigMenus, 'RT_USING_HOOKLIST');
-        if (dfsUsingPosixFinal) {
-            Logger.info(`[KCONFIG_SERVER] Final DFS_USING_POSIX status:`);
-            Logger.info(`[KCONFIG_SERVER]   - isReadonly: ${dfsUsingPosixFinal.isReadonly}`);
-            Logger.info(`[KCONFIG_SERVER]   - selectedBy: [${dfsUsingPosixFinal.selectedBy?.join(', ') || 'none'}]`);
-        }
-
-        if (rtUsingHookListFinal) {
-            Logger.info(`[KCONFIG_SERVER] Final RT_USING_HOOKLIST status:`);
-            Logger.info(`[KCONFIG_SERVER]   - isReadonly: ${rtUsingHookListFinal.isReadonly}`);
-            Logger.info(`[KCONFIG_SERVER]   - selectedBy: [${rtUsingHookListFinal.selectedBy?.join(', ') || 'none'}]`);
-            Logger.info(`[KCONFIG_SERVER]   - value: ${rtUsingHookListFinal.value}`);
-        }
-
-        Logger.info(`[KCONFIG_SERVER] Initialized with ${this.kconfigMenus.length} menus and visibility manager`);
+        this.rebuildMenuCaches();
+        Logger.info(() => `[KCONFIG_SERVER] Initialized with ${this.kconfigMenus.length} menus and visibility manager`);
         this.emit("ready", this.kconfigMenus);
     }
     
@@ -288,94 +155,56 @@ export class KconfigServer extends EventEmitter {
     public hasUnsavedChanges(): boolean {
         return this.unsavedChanges;
     }
+
+    public getMenuDetailById(id: string): MenuDetailPayload | null {
+        const menu = this.menuIndex.get(id);
+        if (!menu) {
+            return null;
+        }
+        const detail = createMenuDetailPayload(menu);
+        if (!detail.prompt) {
+            detail.prompt = menu.title || menu.name || "";
+        }
+        if (!detail.directDepExpr && menu.dependsOn && menu.dependsOn.trim() !== "" && menu.dependsOn.trim() !== "y") {
+            detail.directDepExpr = menu.dependsOn;
+        }
+        if (!detail.menuPath) {
+            detail.menuPath = this.buildMenuPath(id);
+        }
+        return detail;
+    }
     
     public updateValue(updatedMenu: Menu): void {
-        // Logger.info(`[UPDATE_VALUE] ========== UPDATE VALUE START ==========`);
-        // Logger.info(`[UPDATE_VALUE] Updating menu item: ${updatedMenu.id}`);
-        // Logger.info(`[UPDATE_VALUE] Menu name: ${updatedMenu.name}`);
-        // Logger.info(`[UPDATE_VALUE] Menu type: ${updatedMenu.type}`);
-        // Logger.info(`[UPDATE_VALUE] New value: ${updatedMenu.value}`);
-        // Logger.info(`[UPDATE_VALUE] Value type: ${typeof updatedMenu.value}`);
-        // Logger.info(`[UPDATE_VALUE] Timestamp: ${new Date().toISOString()}`);
-        
         this.unsavedChanges = true;
-        
-        // Update the value in the menu structure
-        const updateMenuValue = (menus: Menu[]): boolean => {
-            for (const menu of menus) {
-                if (menu.id === updatedMenu.id) {
-                    const _oldValue = menu.value;
-                    // Logger.info(`[UPDATE_VALUE] Found menu item ${menu.id}, old value: ${oldValue}`);
-                    // Logger.info(`[UPDATE_VALUE] Menu item details - name: ${menu.name}, type: ${menu.type}`);
-                    
-                    // 验证值是否在允许的范围内（针对int和hex类型）
-                    let newValue = updatedMenu.value;
-                    if ((menu.type === menuType.int || menu.type === menuType.hex) && menu.range && menu.range.length >= 2) {
-                        const min = menu.range[0];
-                        const max = menu.range[1];
-                        const numValue = typeof newValue === 'number' ? newValue : parseInt(newValue.toString(), 10);
-                        
-                        if (!isNaN(numValue)) {
-                            if (numValue < min) {
-                                // Logger.warn(`[UPDATE_VALUE] Value ${numValue} is below minimum ${min}, adjusting to ${min}`);
-                                newValue = min;
-                            } else if (numValue > max) {
-                                // Logger.warn(`[UPDATE_VALUE] Value ${numValue} is above maximum ${max}, adjusting to ${max}`);
-                                newValue = max;
-                            }
-                        }
-                    }
-                    
-                    menu.value = newValue;
-                    
-                    // Logger.info(`[UPDATE_VALUE] Updated ${menu.id} from ${oldValue} to ${menu.value}`);
-                    // Logger.info(`[UPDATE_VALUE] Menu item after update - name: ${menu.name}, type: ${menu.type}, value: ${menu.value}`);
-                    
-                    // Logger.info(`[UPDATE_VALUE] About to update visibility with new value: ${newValue}`);
-                    // Save current menus state以便比较自动更新的值与可见性
-                    const menusBeforeVisibilityUpdate = JSON.parse(JSON.stringify(this.kconfigMenus));
-                    
-                    // Update visibility based on the new value
-                    this.kconfigMenus = this.visibilityManager.updateValue(menu.id, newValue);
-                    // Logger.info(`[UPDATE_VALUE] Visibility update complete`);
-                    
-                    // Debug select relationships after value update
-                    if (process.env.NODE_ENV === 'development') {
-                        // Logger.info(`[UPDATE_VALUE] After updating ${menu.name} to ${newValue}:`);
-                        // Add debug logging for select relationships
-                        // Logger.info(`[UPDATE_VALUE] Debugging select relationships...`);
-                    }
-                    
-                    // Check if visibility actually changed
-                    const visibilityChanges = this.collectVisibilityChanges(menusBeforeVisibilityUpdate, this.kconfigMenus);
-                    
-                    // Logger.info(`[UPDATE_VALUE] Emitting valueChanged event with menu: ${menu.name} = ${menu.value}`);
-                    this.emit("valueChanged", menu);
 
-                    // 自动检测其它配置项的值是否因默认值/级联而发生了变化
-                    const additionalValueChanges = this.collectValueChanges(menusBeforeVisibilityUpdate, this.kconfigMenus, menu.id);
-                    for (const changedMenu of additionalValueChanges) {
-                        this.emit("valueChanged", changedMenu);
-                    }
-                    
-                    // Only emit visibilityChanged if visibility actually changed
-                    if (visibilityChanges.length > 0) {
-                        this.emit("visibilityChanged", visibilityChanges);
-                    }
-                    
-                    // Logger.info(`[UPDATE_VALUE] ========== UPDATE VALUE END ==========`);
-                    return true;
-                }
-                if (menu.children && updateMenuValue(menu.children)) {
-                    return true;
+        const targetMenu = this.menuIndex.get(updatedMenu.id);
+        if (!targetMenu) {
+            return;
+        }
+
+        // Validate and clamp numeric-like values against range constraints.
+        let newValue = updatedMenu.value;
+        if ((targetMenu.type === menuType.int || targetMenu.type === menuType.hex) && targetMenu.range && targetMenu.range.length >= 2) {
+            const min = targetMenu.range[0];
+            const max = targetMenu.range[1];
+            const numValue = typeof newValue === 'number' ? newValue : parseInt(newValue.toString(), 10);
+
+            if (!isNaN(numValue)) {
+                if (numValue < min) {
+                    newValue = min;
+                } else if (numValue > max) {
+                    newValue = max;
                 }
             }
-            return false;
-        };
-        
-        const found = updateMenuValue(this.kconfigMenus);
-        if (!found) {
-            // Logger.warn(`[UPDATE_VALUE] Could not find menu item with id: ${updatedMenu.id}`);
+        }
+
+        targetMenu.value = newValue;
+        this.kconfigMenus = this.visibilityManager.updateValue(targetMenu.id, newValue);
+
+        const affectedIds = this.visibilityManager.consumeLastAffectedMenuIds();
+        const visibilityChanges = this.collectChangesForAffectedMenus(affectedIds);
+        if (visibilityChanges.length > 0) {
+            this.emit("visibilityChanged", visibilityChanges);
         }
     }
     
@@ -480,21 +309,8 @@ export class KconfigServer extends EventEmitter {
         // After resetting values, recompute visibility/read-only states
         // so that the menu tree reflects the freshly restored defaults.
         this.visibilityManager.initialize(this.kconfigMenus);
-        this.kconfigMenus = this.visibilityManager.updateValue("", null);
-
-        // Ensure top-level container menus remain visible after recalculation.
-        const forceTopLevelMenusVisible = (menus: Menu[]) => {
-            menus.forEach((menu) => {
-                if (menu.type === menuType.menu && menu.hasPrompt && (!menu.dependsOn || menu.dependsOn.trim() === "")) {
-                    menu.isVisible = true;
-                    (menu as any).isContainerVisible = true;
-                }
-                if (menu.children && menu.children.length > 0) {
-                    forceTopLevelMenusVisible(menu.children);
-                }
-            });
-        };
-        forceTopLevelMenusVisible(this.kconfigMenus);
+        this.forceTopLevelMenusVisible(this.kconfigMenus);
+        this.rebuildMenuCaches();
 
         this.unsavedChanges = true;
         
@@ -531,6 +347,7 @@ export class KconfigServer extends EventEmitter {
             // Logger.warn("[DISCARD] Config file does not exist, keeping default values");
         }
 
+        this.rebuildMenuCaches();
         this.unsavedChanges = false;
         // Logger.info("[DISCARD] Discard changes completed");
         this.emit("changesDiscarded", this.kconfigMenus);
@@ -541,8 +358,8 @@ export class KconfigServer extends EventEmitter {
             const configContent = await fs.promises.readFile(this.configFile, "utf8");
             const configLines = configContent.split("\n");
 
-            Logger.info(`[LOAD_CONFIG] Reading config file: ${this.configFile}`);
-            Logger.info(`[LOAD_CONFIG] Total lines in config: ${configLines.length}`);
+            Logger.info(() => `[LOAD_CONFIG] Reading config file: ${this.configFile}`);
+            Logger.info(() => `[LOAD_CONFIG] Total lines in config: ${configLines.length}`);
 
             let _processedLines = 0;
             let _skippedLines = 0;
@@ -560,7 +377,7 @@ export class KconfigServer extends EventEmitter {
                     const commentMatch = trimmedLine.match(/^#\s*CONFIG_([A-Z0-9_]+)\s+is\s+not\s+set$/);
                     if (commentMatch) {
                         const _configName = commentMatch[1];
-                        const updateResult = this.updateMenuValueByName(_configName, "n");
+                        const updateResult = this.updateIndexedMenuValues(_configName, "n");
                         if (updateResult) {
                             _processedLines++;
                         }
@@ -576,7 +393,7 @@ export class KconfigServer extends EventEmitter {
                     const _configName = configMatch[1];
                     const configValue = configMatch[2];
 
-                    const updateResult = this.updateMenuValueByName(_configName, configValue);
+                    const updateResult = this.updateIndexedMenuValues(_configName, configValue);
                     if (updateResult) {
                         _processedLines++;
                     }
@@ -586,7 +403,7 @@ export class KconfigServer extends EventEmitter {
                 _skippedLines++;
             }
 
-            Logger.info(`[LOAD_CONFIG] Processed ${_processedLines} config lines, skipped ${_skippedLines} lines`);
+            Logger.info(() => `[LOAD_CONFIG] Processed ${_processedLines} config lines, skipped ${_skippedLines} lines`);
 
             // After loading raw values, reconcile choice containers from children values
             this.reconcileChoicesFromChildren();
@@ -603,7 +420,7 @@ export class KconfigServer extends EventEmitter {
             Logger.info("[LOAD_CONFIG]   " + logVal("RT_USING_SLAB_AS_HEAP"));
             const heapChoice = this.findParentChoice("RT_USING_SMALL_MEM_AS_HEAP") || this.findParentChoice("RT_USING_SLAB_AS_HEAP");
             if (heapChoice) {
-                Logger.info(`[LOAD_CONFIG]   choice(System Heap) selected: ${heapChoice.value}`);
+                Logger.info(() => `[LOAD_CONFIG]   choice(System Heap) selected: ${heapChoice.value}`);
             }
         } catch (error) {
             Logger.error("Failed to load config values", error as Error);
@@ -631,7 +448,7 @@ export class KconfigServer extends EventEmitter {
                         for (const child of menu.children) {
                             child.value = child.name === selected;
                         }
-                        Logger.info(`[CHOICE_RECONCILE] Choice "${menu.title || menu.name}" selected <- ${selected}`);
+                        Logger.info(() => `[CHOICE_RECONCILE] Choice "${menu.title || menu.name}" selected <- ${selected}`);
                     }
                 }
                 if (menu.children && menu.children.length > 0) {
@@ -643,98 +460,7 @@ export class KconfigServer extends EventEmitter {
     }
     
     private updateMenuValueByName(name: string, value: string): boolean {
-        let found = false;
-        
-        const updateValue = (menus: Menu[]): void => {
-            for (const menu of menus) {
-                if (menu.name === name) {
-                    const _oldValue = menu.value;
-                    // Logger.info(`[UPDATE_VALUE] Found menu item: ${name}, type: ${menu.type}, old value: ${oldValue}, new value: ${value}`);
-                    
-                    // Parse value based on type
-                    switch (menu.type) {
-                        case menuType.bool: {
-                            menu.value = value === "y";
-                            // If this bool belongs to a choice, update the parent choice selection accordingly
-                            const parentChoice = this.findParentChoice(name);
-                            if (parentChoice) {
-                                if (menu.value === true) {
-                                    parentChoice.value = name;
-                                    // normalize siblings
-                                    for (const sibling of parentChoice.children || []) {
-                                        if (sibling.name !== name && sibling.type === menuType.bool) {
-                                            sibling.value = false;
-                                        }
-                                    }
-                                    Logger.info(`[LOAD_CONFIG] Set parent choice "${parentChoice.title || parentChoice.name}" <- ${name}`);
-                                } else if (parentChoice.value === name) {
-                                    // If this child is set to n and was the selected one, clear selection
-                                    parentChoice.value = null as any;
-                                }
-                            }
-                            // Logger.info(`[UPDATE_VALUE] Bool: ${name} = ${menu.value} (from ${value})`);
-                            break;
-                        }
-                        case menuType.tristate: {
-                            let normalized: "y" | "m" | "n" = "n";
-                            if (typeof value === "string") {
-                                const lower = value.toLowerCase();
-                                if (lower === "y") {
-                                    normalized = "y";
-                                } else if (lower === "m") {
-                                    normalized = "m";
-                                } else if (lower === "1") {
-                                    normalized = "m";
-                                } else if (lower === "2") {
-                                    normalized = "y";
-                                } else {
-                                    normalized = "n";
-                                }
-                            } else if (typeof value === "number") {
-                                if (value >= 2) {
-                                    normalized = "y";
-                                } else if (value === 1) {
-                                    normalized = "m";
-                                }
-                            } else if (typeof value === "boolean") {
-                                normalized = value ? "y" : "n";
-                            }
-                            menu.value = normalized;
-                            break;
-                        }
-                        case menuType.int:
-                            menu.value = parseInt(value, 10);
-                            // Logger.info(`[UPDATE_VALUE] Int: ${name} = ${menu.value} (from ${value})`);
-                            break;
-                        case menuType.hex:
-                            menu.value = value;
-                            // Logger.info(`[UPDATE_VALUE] Hex: ${name} = ${menu.value} (from ${value})`);
-                            break;
-                        case menuType.string:
-                            // Remove quotes from string values
-                            menu.value = value.replace(/^"(.*)"$/, "$1");
-                            // Logger.info(`[UPDATE_VALUE] String: ${name} = "${menu.value}" (from ${value})`);
-                            break;
-                        case menuType.choice:
-                            // For choice type, the value should be the name of the selected option
-                            menu.value = value === "y" ? name : null;
-                            // Logger.info(`[UPDATE_VALUE] Choice: ${name} = ${menu.value} (from ${value})`);
-                            break;
-                        default:
-                            menu.value = value;
-                            // Logger.info(`[UPDATE_VALUE] Default: ${name} = ${menu.value} (from ${value})`);
-                    }
-                    
-                    found = true;
-                }
-                if (menu.children) {
-                    updateValue(menu.children);
-                }
-            }
-        };
-        
-        updateValue(this.kconfigMenus);
-        return found;
+        return this.updateIndexedMenuValues(name, value);
     }
     
     private async resolveHeaderPath(): Promise<string | null> {
@@ -814,210 +540,213 @@ export class KconfigServer extends EventEmitter {
      * Backslashes must be escaped before quotes to avoid double escaping
      */
     private findParentChoice(childName: string): Menu | null {
-        const findParent = (menus: Menu[]): Menu | null => {
-            for (const menu of menus) {
-                if (menu.type === menuType.choice && menu.children) {
-                    for (const child of menu.children) {
-                        if (child.name === childName) {
-                            return menu;
-                        }
-                    }
-                }
-                if (menu.children) {
-                    const result = findParent(menu.children);
-                    if (result) return result;
-                }
+        const byName = this.menuNameIndex.get(childName) || [];
+        for (const target of byName) {
+            const parentChoice = this.choiceParentByChildId.get(target.id);
+            if (parentChoice) {
+                return parentChoice;
             }
-            return null;
-        };
-        
-        return findParent(this.kconfigMenus);
+        }
+        return null;
     }
     
-    private hasVisibilityChanges(oldMenus: Menu[], newMenus: Menu[]): boolean {
-        const compareVisibility = (oldItems: Menu[], newItems: Menu[]): boolean => {
-            if (oldItems.length !== newItems.length) {
-                // Logger.info(`[VISIBILITY_CHECK] Length changed: ${oldItems.length} -> ${newItems.length}`);
-                return true;
+    private rebuildMenuCaches(): void {
+        const nextIndex = new Map<string, Menu>();
+        const nextNameIndex = new Map<string, Menu[]>();
+        const nextChoiceParent = new Map<string, Menu>();
+        const nextParentByChildId = new Map<string, string | null>();
+        const nextState = new Map<string, MenuStateSnapshot>();
+        const stack: Array<{ menu: Menu; parentId: string | null }> =
+            this.kconfigMenus.map((menu) => ({ menu, parentId: null }));
+
+        while (stack.length > 0) {
+            const current = stack.pop();
+            if (!current || !current.menu) {
+                continue;
             }
-            
-            for (let i = 0; i < oldItems.length; i++) {
-                const oldItem = oldItems[i];
-                const newItem = newItems[i];
-                
-                if (oldItem.id !== newItem.id) {
-                    // Logger.info(`[VISIBILITY_CHECK] Item order changed at index ${i}: ${oldItem.id} -> ${newItem.id}`);
-                    return true;
-                }
-                
-                if (oldItem.isVisible !== newItem.isVisible) {
-                    // Logger.info(`[VISIBILITY_CHECK] Visibility changed for ${oldItem.name || oldItem.id}: ${oldItem.isVisible} -> ${newItem.isVisible}`);
-                    return true;
-                }
-                
-                // Recursively check children
-                if (oldItem.children && newItem.children) {
-                    if (compareVisibility(oldItem.children, newItem.children)) {
-                        return true;
-                    }
-                } else if (oldItem.children || newItem.children) {
-                    // Logger.info(`[VISIBILITY_CHECK] Children structure changed for ${oldItem.name || oldItem.id}`);
-                    return true;
+            const menu = current.menu;
+
+            nextIndex.set(menu.id, menu);
+            nextParentByChildId.set(menu.id, current.parentId);
+            nextState.set(menu.id, this.snapshotMenuState(menu));
+            if (menu.name) {
+                const siblings = nextNameIndex.get(menu.name) || [];
+                siblings.push(menu);
+                nextNameIndex.set(menu.name, siblings);
+            }
+            if (menu.type === menuType.choice && menu.children && menu.children.length > 0) {
+                for (const child of menu.children) {
+                    nextChoiceParent.set(child.id, menu);
                 }
             }
-            
-            return false;
-        };
-        
-        const hasChanges = compareVisibility(oldMenus, newMenus);
-        // Logger.info(`[VISIBILITY_CHECK] Overall visibility changes detected: ${hasChanges}`);
-        return hasChanges;
-    }
 
-    private collectValueChanges(oldMenus: Menu[], newMenus: Menu[], excludeId?: string): Menu[] {
-        const beforeMap = new Map<string, { value: any; type: menuType }>();
-
-        const collectBefore = (menus: Menu[]) => {
-            for (const menu of menus) {
-                beforeMap.set(menu.id, { value: menu.value, type: menu.type });
-                if (menu.children && menu.children.length > 0) {
-                    collectBefore(menu.children);
-                }
-            }
-        };
-
-        collectBefore(oldMenus);
-
-        const changed: Menu[] = [];
-
-        const compareAfter = (menus: Menu[]) => {
-            for (const menu of menus) {
-                if (excludeId && menu.id === excludeId) {
-                    if (menu.children && menu.children.length > 0) {
-                        compareAfter(menu.children);
-                    }
-                    continue;
-                }
-
-                const before = beforeMap.get(menu.id);
-                if (!before || !this.areMenuValuesEqual(before.value, menu.value, before.type)) {
-                    changed.push(menu);
-                }
-
-                if (menu.children && menu.children.length > 0) {
-                    compareAfter(menu.children);
-                }
-            }
-        };
-
-        compareAfter(newMenus);
-
-        return changed;
-    }
-
-    private collectVisibilityChanges(oldMenus: Menu[], newMenus: Menu[]): Array<{
-        id: string;
-        isVisible?: boolean;
-        isContainerVisible?: boolean;
-        isReadonly?: boolean;
-        readonlyReason?: string | undefined;
-        selectedBy?: string[] | undefined;
-        autoSelectedValue?: boolean | undefined;
-        autoImpliedValue?: 'y' | 'm' | boolean | undefined;
-        value?: any;
-    }> {
-        const beforeMap = new Map<string, {
-            isVisible?: boolean;
-            isContainerVisible?: boolean;
-            isReadonly?: boolean;
-            readonlyReason?: string;
-            selectedBy?: string[];
-            autoSelectedValue?: boolean;
-            autoImpliedValue?: 'y' | 'm' | boolean;
-            value?: any;
-        }>();
-
-        const collectBefore = (menus: Menu[]) => {
-            for (const menu of menus) {
-                beforeMap.set(menu.id, {
-                    isVisible: menu.isVisible,
-                    isContainerVisible: (menu as any).isContainerVisible,
-                    isReadonly: menu.isReadonly,
-                    readonlyReason: menu.readonlyReason,
-                    selectedBy: menu.selectedBy ? [...menu.selectedBy] : undefined,
-                    autoSelectedValue: menu.autoSelectedValue,
-                    autoImpliedValue: menu.autoImpliedValue,
-                    value: menu.value
-                });
-                if (menu.children && menu.children.length > 0) {
-                    collectBefore(menu.children);
-                }
-            }
-        };
-
-        collectBefore(oldMenus);
-
-        const changes: Array<{
-            id: string;
-            isVisible?: boolean;
-            isContainerVisible?: boolean;
-            isReadonly?: boolean;
-            readonlyReason?: string | undefined;
-            selectedBy?: string[] | undefined;
-            autoSelectedValue?: boolean | undefined;
-            autoImpliedValue?: 'y' | 'm' | boolean | undefined;
-            value?: any;
-        }> = [];
-
-        const compareAfter = (menus: Menu[]) => {
-            for (const menu of menus) {
-                const before = beforeMap.get(menu.id);
-                if (!before) {
-                    changes.push({
-                        id: menu.id,
-                        isVisible: menu.isVisible,
-                        isContainerVisible: (menu as any).isContainerVisible,
-                        isReadonly: menu.isReadonly,
-                        readonlyReason: menu.readonlyReason,
-                        selectedBy: menu.selectedBy ? [...menu.selectedBy] : undefined,
-                        autoSelectedValue: menu.autoSelectedValue,
-                        autoImpliedValue: menu.autoImpliedValue,
-                        value: menu.value
+            if (menu.children && menu.children.length > 0) {
+                for (let i = 0; i < menu.children.length; i++) {
+                    stack.push({
+                        menu: menu.children[i],
+                        parentId: menu.id,
                     });
-                } else {
-                    const visibilityDiff = before.isVisible !== menu.isVisible;
-                    const containerDiff = before.isContainerVisible !== (menu as any).isContainerVisible;
-                    const readonlyDiff = before.isReadonly !== menu.isReadonly;
-                    const reasonDiff = before.readonlyReason !== menu.readonlyReason;
-                    const selectedByDiff = this.arrayChanged(before.selectedBy, menu.selectedBy);
-                    const autoSelectedDiff = before.autoSelectedValue !== menu.autoSelectedValue;
-                    const autoImpliedDiff = before.autoImpliedValue !== menu.autoImpliedValue;
-                    const valueDiff = before.value !== menu.value && (menu.type === menuType.bool || menu.type === menuType.tristate);
-
-                    if (visibilityDiff || containerDiff || readonlyDiff || reasonDiff || selectedByDiff || autoSelectedDiff || autoImpliedDiff || valueDiff) {
-                        changes.push({
-                            id: menu.id,
-                            isVisible: menu.isVisible,
-                            isContainerVisible: (menu as any).isContainerVisible,
-                            isReadonly: menu.isReadonly,
-                            readonlyReason: menu.readonlyReason,
-                            selectedBy: menu.selectedBy ? [...menu.selectedBy] : undefined,
-                            autoSelectedValue: menu.autoSelectedValue,
-                            autoImpliedValue: menu.autoImpliedValue,
-                            value: valueDiff ? menu.value : undefined
-                        });
-                    }
-                }
-
-                if (menu.children && menu.children.length > 0) {
-                    compareAfter(menu.children);
                 }
             }
+        }
+
+        this.menuIndex = nextIndex;
+        this.menuNameIndex = nextNameIndex;
+        this.choiceParentByChildId = nextChoiceParent;
+        this.menuParentByChildId = nextParentByChildId;
+        this.menuStateCache = nextState;
+    }
+
+    private buildMenuPath(menuId: string): string {
+        const segments: string[] = [];
+        let parentId = this.menuParentByChildId.get(menuId) ?? null;
+
+        while (parentId) {
+            const parent = this.menuIndex.get(parentId);
+            if (!parent) {
+                break;
+            }
+            const label = (parent.title || parent.prompt || parent.name || "").trim();
+            if (label) {
+                segments.unshift(label);
+            }
+            parentId = this.menuParentByChildId.get(parentId) ?? null;
+        }
+
+        if (segments.length === 0) {
+            return "(Top)";
+        }
+        return `(Top) -> ${segments.join(" -> ")}`;
+    }
+
+    private updateIndexedMenuValues(name: string, rawValue: string): boolean {
+        const targets = this.menuNameIndex.get(name);
+        if (!targets || targets.length === 0) {
+            return false;
+        }
+
+        for (const menu of targets) {
+            this.applyConfigValueToMenu(menu, rawValue);
+        }
+        return true;
+    }
+
+    private applyConfigValueToMenu(menu: Menu, rawValue: string): void {
+        switch (menu.type) {
+            case menuType.bool: {
+                menu.value = rawValue === "y";
+                const parentChoice = this.choiceParentByChildId.get(menu.id);
+                if (parentChoice) {
+                    if (menu.value === true) {
+                        parentChoice.value = menu.name;
+                        for (const sibling of parentChoice.children || []) {
+                            if (sibling.name !== menu.name && sibling.type === menuType.bool) {
+                                sibling.value = false;
+                            }
+                        }
+                        Logger.info(() => `[LOAD_CONFIG] Set parent choice "${parentChoice.title || parentChoice.name}" <- ${menu.name}`);
+                    } else if (parentChoice.value === menu.name) {
+                        parentChoice.value = null as any;
+                    }
+                }
+                return;
+            }
+            case menuType.tristate: {
+                let normalized: "y" | "m" | "n" = "n";
+                const lower = rawValue.toLowerCase();
+                if (lower === "y" || lower === "2") {
+                    normalized = "y";
+                } else if (lower === "m" || lower === "1") {
+                    normalized = "m";
+                }
+                menu.value = normalized;
+                return;
+            }
+            case menuType.int:
+                menu.value = parseInt(rawValue, 10);
+                return;
+            case menuType.hex:
+                menu.value = rawValue;
+                return;
+            case menuType.string:
+                menu.value = rawValue.replace(/^"(.*)"$/, "$1");
+                return;
+            case menuType.choice:
+                menu.value = rawValue === "y" ? menu.name : null;
+                return;
+            default:
+                menu.value = rawValue;
+                return;
+        }
+    }
+
+    private forceTopLevelMenusVisible(menus: Menu[]): void {
+        menus.forEach((menu) => {
+            if (menu.type === menuType.menu && menu.hasPrompt && (!menu.dependsOn || menu.dependsOn.trim() === "")) {
+                menu.isVisible = true;
+                (menu as any).isContainerVisible = true;
+            }
+            if (menu.children && menu.children.length > 0) {
+                this.forceTopLevelMenusVisible(menu.children);
+            }
+        });
+    }
+
+    private snapshotMenuState(menu: Menu): MenuStateSnapshot {
+        return {
+            type: menu.type,
+            value: menu.value,
+            isVisible: menu.isVisible,
+            isContainerVisible: (menu as any).isContainerVisible,
+            isReadonly: menu.isReadonly,
+            readonlyReason: menu.readonlyReason,
+            selectedBy: menu.selectedBy ? [...menu.selectedBy] : undefined,
+            autoSelectedValue: menu.autoSelectedValue,
+            autoImpliedValue: menu.autoImpliedValue,
         };
+    }
 
-        compareAfter(newMenus);
+    private collectChangesForAffectedMenus(affectedIds: Iterable<string>): MenuDeltaChange[] {
+        const visibilityChanges: MenuDeltaChange[] = [];
 
-        return changes;
+        for (const id of affectedIds) {
+            const menu = this.menuIndex.get(id);
+            if (!menu) {
+                continue;
+            }
+
+            const before = this.menuStateCache.get(id);
+            const current = this.snapshotMenuState(menu);
+
+            const valueDiff = !before || !this.areMenuValuesEqual(before.value, current.value, current.type);
+            const visibilityDiff = !before || (
+                before.isVisible !== current.isVisible ||
+                before.isContainerVisible !== current.isContainerVisible ||
+                before.isReadonly !== current.isReadonly ||
+                before.readonlyReason !== current.readonlyReason ||
+                this.arrayChanged(before.selectedBy, current.selectedBy) ||
+                before.autoSelectedValue !== current.autoSelectedValue ||
+                before.autoImpliedValue !== current.autoImpliedValue
+            );
+
+            if (!before || visibilityDiff || valueDiff) {
+                visibilityChanges.push({
+                    id: menu.id,
+                    isVisible: current.isVisible,
+                    isContainerVisible: current.isContainerVisible,
+                    isReadonly: current.isReadonly,
+                    readonlyReason: current.readonlyReason,
+                    selectedBy: current.selectedBy ? [...current.selectedBy] : undefined,
+                    autoSelectedValue: current.autoSelectedValue,
+                    autoImpliedValue: current.autoImpliedValue,
+                    value: valueDiff || !before ? menu.value : undefined
+                });
+            }
+
+            this.menuStateCache.set(id, current);
+        }
+
+        return visibilityChanges;
     }
 
     private areMenuValuesEqual(previous: any, current: any, type: menuType): boolean {
@@ -1067,109 +796,6 @@ export class KconfigServer extends EventEmitter {
         
         // Logger.info(`${prefix} - Current configuration values:`);
         logMenuValues(this.kconfigMenus);
-    }
-    
-    public async loadVirtualNodeContent(nodeId: string): Promise<Menu[]> {
-        try {
-            Logger.info(`[KCONFIG_SERVER] Loading virtual node content for: ${nodeId}`);
-            
-            if (!this.isRunning) {
-                throw new Error("KconfigServer is not running");
-            }
-            
-            // Use the saved menu loader instance to expand the virtual node
-            if (!this.menuLoader) {
-                throw new Error("MenuLoader not initialized - ensure KconfigServer.start() has been called");
-            }
-            const loadedChildren = await this.menuLoader.expandPackageNode(nodeId, this.kconfigMenus);
-            
-            if (loadedChildren.length === 0) {
-                Logger.warn(`[KCONFIG_SERVER] No content loaded for virtual node: ${nodeId}`);
-                return this.kconfigMenus;
-            }
-            
-            // Find the virtual node in the menu tree and replace its children
-            const updateVirtualNode = (menus: Menu[]): boolean => {
-                for (const menu of menus) {
-                    if (menu.id === nodeId && menu.isVirtual) {
-                        Logger.info(`[KCONFIG_SERVER] Found virtual node ${nodeId}, replacing with ${loadedChildren.length} children`);
-                        
-                        // Replace placeholder children with actual loaded content
-                        menu.children = loadedChildren;
-                        menu.childrenParsed = true;
-                        menu.isVirtual = false; // No longer virtual after loading
-                        
-                        // Mark all loaded children as visible by default
-                        const markChildrenVisible = (children: Menu[]) => {
-                            children.forEach(child => {
-                                child.isVisible = true;
-                                if (child.children) {
-                                    markChildrenVisible(child.children);
-                                }
-                            });
-                        };
-                        markChildrenVisible(loadedChildren);
-                        
-                        // 🔑 关键修复：正确设置懒加载内容的折叠状态
-                        const applyCorrectCollapseState = (children: Menu[]) => {
-                            children.forEach(child => {
-                                if (child.isMenuconfig) {
-                                    // menuconfig: value=false 时必须折叠，value=true 时展开
-                                    child.isCollapsed = child.value !== true;
-                                    Logger.info(`[KCONFIG_SERVER] 设置 menuconfig "${child.title}" 折叠状态: ${child.isCollapsed} (value=${child.value})`);
-                                } else if (child.type === 'menu') {
-                                    // 普通 menu: 默认折叠
-                                    child.isCollapsed = child.isCollapsed ?? true;
-                                    Logger.info(`[KCONFIG_SERVER] 设置 menu "${child.title}" 折叠状态: ${child.isCollapsed}`);
-                                }
-                                
-                                // 递归处理子节点
-                                if (child.children && child.children.length > 0) {
-                                    applyCorrectCollapseState(child.children);
-                                }
-                            });
-                        };
-                        applyCorrectCollapseState(loadedChildren);
-                        
-                        return true;
-                    }
-                    
-                    if (menu.children && updateVirtualNode(menu.children)) {
-                        return true;
-                    }
-                }
-                return false;
-            };
-            
-            const found = updateVirtualNode(this.kconfigMenus);
-            
-            if (!found) {
-                Logger.warn(`[KCONFIG_SERVER] Virtual node not found in menu tree: ${nodeId}`);
-                return this.kconfigMenus;
-            }
-            
-            // Update visibility manager with the new content
-            this.visibilityManager.initialize(this.kconfigMenus);
-            this.kconfigMenus = this.visibilityManager.updateValue("", null);
-
-            // Keep the same visibility guard for top-level menus after updates
-            const forceTopLevelMenusVisible = (menus: Menu[]) => {
-                menus.forEach((m) => {
-                    if (m.type === menuType.menu && m.hasPrompt && (!m.dependsOn || m.dependsOn.trim() === "")) {
-                        m.isVisible = true;
-                        (m as any).isContainerVisible = true;
-                    }
-                });
-            };
-            forceTopLevelMenusVisible(this.kconfigMenus);
-            
-            Logger.info(`[KCONFIG_SERVER] Successfully loaded virtual node: ${nodeId}`);
-            return this.kconfigMenus;
-            
-        } catch (error) {
-            Logger.error(`[KCONFIG_SERVER] Failed to load virtual node ${nodeId}`, error as Error);
-            throw error;
-        }
     }
     
     public dispose(): void {

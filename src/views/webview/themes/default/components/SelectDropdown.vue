@@ -114,6 +114,9 @@ function handleChange() {
 
 function toggleHelp() {
   isHelpVisible.value = !isHelpVisible.value;
+  if (isHelpVisible.value) {
+    store.requestMenuDetail(props.config.id);
+  }
 }
 
 watch(() => props.config.value, (newValue) => {
