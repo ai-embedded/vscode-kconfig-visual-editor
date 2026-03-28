@@ -180,6 +180,10 @@ This extension contributes the following settings:
 3. 0.2.1:
     - Fix the error of saving the choice
 
+4. 0.3.0:
+   - Optimized loading speed and enhanced the display speed of large-scale engineering loading, supporting RT-Thread large-scale engineering
+   - Fixed some compatibility issues with Kconfig syntax
+
 ## Testing & Validation
 
 This extension has been thoroughly tested and validated with a wide range of real-world Kconfig files to ensure compatibility and stability. Complete test cases and example files can be found in the [test repository](./test-kconfig/README.md).
