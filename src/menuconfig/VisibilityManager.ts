@@ -466,6 +466,13 @@ export class VisibilityManager {
                 return;
             }
 
+            if (menu.type === menuType.choice) {
+                if (menu.children) {
+                    menu.children.forEach(process);
+                }
+                return;
+            }
+
             const hasDefaults = !!(menu.defaults && menu.defaults.length > 0);
             const shouldInit = menu.value === undefined || menu.value === null;
 
@@ -506,6 +513,14 @@ export class VisibilityManager {
      */
     private reapplyDefaultsForMenu(menu: Menu): boolean {
         if (!menu.name || menu.type === menuType.menu) {
+            return false;
+        }
+        // choice 容器的 value 是「当前选中的成员名」，由 applyChoiceDefaults /
+        // applyChoiceSelection 裁决，不能被当作普通符号重新套用 default：
+        // 0.3.0 实测 default EXAMPLE_ONEWIRE_BACKEND_RMT 先被正确写成成员名，
+        // 随后 propagateDefaultsFrom 在这里把成员名解析成成员 bool 的 true，
+        // 下拉框拿 true 匹配不到任何选项 ⇒ 显示为空。
+        if (menu.type === menuType.choice) {
             return false;
         }
         if (menu.autoSelectedValue) {
